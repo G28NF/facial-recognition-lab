@@ -91,28 +91,6 @@ O acesso biometrico exige a chave
 `RFV2_ACCESS_KEY` do `.env`; a sessao usa cookie `HttpOnly`/`SameSite=Strict` e requisicoes de
 escrita exigem CSRF. A API tambem rejeita clientes que nao sejam loopback.
 
-### Problemas comuns de inicio
-
-- **`api/session-warmup` responde HTTP 503** ou a interface permanece em
-  **"Aquecendo os pipelines com o primeiro rosto..."**: o FastAPI nao esta acessivel. Execute
-  `bin\start-python.ps1` em outro PowerShell e confirme `http://127.0.0.1:8021/health`.
-- **"Inicializacao incompleta"** ou health PHP com banco indisponivel: confirme que Docker Desktop
-  esta em execucao, rode `docker compose --env-file .env up -d` e confira `docker compose --env-file .env ps`.
-- **`bin\start-python.ps1` informa ambiente Python ausente**: execute primeiro
-  `bin\setup-python.ps1`.
-- **`Modelos YuNet/SFace ausentes`**: confira os dois nomes e caminhos em
-  `python-service/models/README.md`. Para a arquitetura A, confira todos os manifests e shards em
-  `public/assets/models/README.md`.
-- A permissao da webcam e tratada pelo navegador. Em `localhost`, a camera pode ser usada sem HTTPS;
-  ainda assim, confirme a permissao do navegador e se Apache esta servindo `APP_BASE_URL`.
-
-Na interface autenticada, escolha o intervalo e use **Iniciar sessao**. O primeiro quadro com um
-rosto aquece os pipelines e fica fora das execucoes oficiais. Depois disso, cada rodada persiste
-dois eventos vinculados ao mesmo `frame_sequence`. Pausa e retomada reiniciam o relogio a partir
-de um novo intervalo; encerrar fecha as duas sessoes A/B do grupo comparativo.
-Se uma aba for encerrada abruptamente e o fechamento assíncrono não alcançar o servidor, o início
-da próxima sessão marca qualquer grupo local ainda ativo como `interrupted` antes de prosseguir.
-
 ## Painel de desempenho
 
 O painel autenticado apresenta estatisticas gerais e por sessao para A e B, evolucao temporal,
@@ -231,50 +209,6 @@ Face API.js e `1.3225` para SFace normalizado. A comparacao percorre somente emb
 mesmo modelo usando o indice `ix_embeddings_model_active`, mantendo em memoria apenas a melhor
 amostra por identidade. Isso evita carregar todos os vetores ao mesmo tempo, mas nao constitui
 benchmark de 20 mil pessoas; essa escala ainda deve ser medida com dados representativos.
-
-## Publicacao segura no GitHub
-
-Antes de publicar, mantenha fora do Git o `.env` e suas variantes, logs, diretorios temporarios,
-ambientes Python locais, arquivos compactados de datasets e backups locais. O `.env.example` e o
-unico ponto de partida versionado: preencha os segredos somente na maquina de destino e gere novos
-valores para cada ambiente. Nunca inclua dumps do MySQL, imagens de pessoas, embeddings, CSVs de
-experimentos ou arquivos de sessao.
-
-Os pesos de modelos nao fazem parte deste repositorio. Para uso local, obtenha-os manualmente das
-fontes e condicoes indicadas nos arquivos README dos respectivos diretorios. Eles nao sao dados
-biometricos dos usuarios, mas datasets, imagens pessoais, dumps, embeddings e CSVs experimentais
-continuam proibidos no Git. Nao publique LFW ou outro dataset junto com este projeto sem confirmar a
-permissao aplicavel e a base legal para o tratamento biometrico.
-
-O navegador baixa `face-api.js` de uma versao fixa do jsDelivr com Subresource Integrity (SRI). Ao
-atualizar essa dependencia, recalcule o atributo `integrity` a partir do arquivo oficial revisado;
-nao remova a verificacao para contornar uma falha de carregamento.
-
-## Testes
-
-```powershell
-php tests\InfrastructureTest.php
-php tests\PdoIntegrationTest.php
-php tests\RecognitionIntegrationTest.php
-php tests\SecurityTest.php
-php tests\VideoSessionIntegrationTest.php
-php tests\StatisticsCalculatorTest.php
-php tests\MetricsDashboardIntegrationTest.php
-php tests\DatasetImportIntegrationTest.php
-php tests\IdentityManagementIntegrationTest.php
-php tests\IdentityPaginationIntegrationTest.php
-php tests\ProbeEvaluationIntegrationTest.php
-php tests\WebcamSupervisedEvaluationTest.php
-php tests\ImportConfigurationTest.php
-php tests\EncryptedPersistenceTest.php
-node tests\SchedulerPolicyTest.mjs
-node tests\ModelLifecycleClientTest.mjs
-node tests\SessionSubmissionClientTest.mjs
-Push-Location python-service; .\.venv\Scripts\python.exe -m pytest -q; Pop-Location
-node --check public\assets\js\app.js
-node --check public\assets\js\dashboard.js
-node --check public\assets\js\import.js
-```
 
 Para encerrar apenas a V2 sem apagar dados:
 
