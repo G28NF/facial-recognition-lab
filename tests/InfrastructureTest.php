@@ -43,8 +43,8 @@ foreach (['webcam_evaluation_segments', 'webcam_evaluation_results', 'session_gr
     $check(str_contains($webcamSchema, $required), "Esquema de avaliacao webcam sem {$required}.");
 }
 
-$compose = (string) file_get_contents($root.'/docker-compose.yml');
-$check(str_contains($compose, 'rf-v2-mysql') && str_contains($compose, 'rf_v2_mysql_data'), 'Compose nao isola container e volume da V2.');
-$check(str_contains($compose, '127.0.0.1:${RFV2_DB_PORT}:3306'), 'Banco nao esta restrito ao loopback ou a porta nao e configuravel.');
+$check(!is_file($root.'/docker-compose.yml'), 'Docker Compose nao deve fazer parte da configuracao da V2.');
+$check(!str_contains($schema, 'utf8mb4_0900_ai_ci'), 'Schema mantem collation exclusiva do MySQL 8.');
+$check(str_contains($schema, 'utf8mb4_unicode_ci'), 'Schema nao declara collation compativel com MariaDB.');
 
 echo "OK - estrutura, esquema e criptografia autenticada\n";

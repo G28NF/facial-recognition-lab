@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS schema_migrations (
     version VARCHAR(64) NOT NULL PRIMARY KEY,
     applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS architectures (
     id CHAR(1) NOT NULL PRIMARY KEY,
@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS architectures (
     extraction_runtime VARCHAR(40) NOT NULL,
     active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS identities (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS identities (
     UNIQUE KEY uq_identities_public_id (public_id),
     UNIQUE KEY uq_identities_name_hash (name_lookup_hash),
     KEY ix_identities_active_id (active, id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS biometric_models (
     id SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS biometric_models (
     CONSTRAINT chk_models_dimensions CHECK (dimensions > 0),
     UNIQUE KEY uq_models_key (model_key),
     UNIQUE KEY uq_models_vector_space (vector_space_key)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS embeddings (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS embeddings (
     UNIQUE KEY uq_embeddings_sample (identity_id, biometric_model_id, sample_number),
     KEY ix_embeddings_model_active (biometric_model_id, active, identity_id),
     KEY ix_embeddings_identity_model (identity_id, biometric_model_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS datasets (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS datasets (
     description TEXT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uq_datasets_name (name)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS experiments (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS experiments (
     CONSTRAINT fk_experiments_dataset FOREIGN KEY (dataset_id) REFERENCES datasets(id) ON DELETE SET NULL,
     UNIQUE KEY uq_experiments_public_id (public_id),
     KEY ix_experiments_status_created (status, created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS video_sessions (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS video_sessions (
     CONSTRAINT fk_sessions_architecture FOREIGN KEY (architecture_id) REFERENCES architectures(id) ON DELETE RESTRICT,
     UNIQUE KEY uq_sessions_public_id (public_id),
     KEY ix_sessions_architecture_status (architecture_id, status, created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS recognition_events (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -121,7 +121,7 @@ CREATE TABLE IF NOT EXISTS recognition_events (
     KEY ix_events_session_time (video_session_id, occurred_at),
     KEY ix_events_identity_time (matched_identity_id, occurred_at),
     KEY ix_events_architecture_result (architecture_id, result, occurred_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS execution_metrics (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -135,7 +135,7 @@ CREATE TABLE IF NOT EXISTS execution_metrics (
     CONSTRAINT fk_metrics_session FOREIGN KEY (video_session_id) REFERENCES video_sessions(id) ON DELETE CASCADE,
     KEY ix_metrics_session_name_time (video_session_id, metric_name, recorded_at),
     KEY ix_metrics_name_time (metric_name, recorded_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO architectures (id, name, extraction_runtime) VALUES
     ('A', 'Face API.js + PHP', 'browser-javascript'),

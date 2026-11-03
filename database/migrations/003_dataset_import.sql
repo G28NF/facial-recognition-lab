@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS dataset_imports (
     UNIQUE KEY uq_dataset_imports_public_id (public_id),
     KEY ix_dataset_imports_dataset_created (dataset_id, created_at),
     KEY ix_dataset_imports_status_updated (status, updated_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS dataset_import_identities (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS dataset_import_identities (
     CONSTRAINT fk_import_identities_identity FOREIGN KEY (identity_id) REFERENCES identities(id) ON DELETE RESTRICT,
     UNIQUE KEY uq_import_identity_label (dataset_import_id, source_label_hash),
     KEY ix_import_identities_identity (identity_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS dataset_samples (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS dataset_samples (
     UNIQUE KEY uq_dataset_samples_fingerprint (dataset_import_id, file_fingerprint),
     KEY ix_dataset_samples_import_status (dataset_import_id, status, id),
     KEY ix_dataset_samples_identity_split (import_identity_id, split_name)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS dataset_sample_embeddings (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS dataset_sample_embeddings (
     ),
     UNIQUE KEY uq_sample_embedding_model (dataset_sample_id, biometric_model_id),
     KEY ix_sample_embeddings_gallery (gallery_embedding_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO schema_migrations (version) VALUES ('003_dataset_import')
 ON DUPLICATE KEY UPDATE version = VALUES(version);
