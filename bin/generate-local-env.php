@@ -13,7 +13,6 @@ if (!is_string($template)) {
 }
 $replacements = [
     'substitua-por-uma-senha-longa' => bin2hex(random_bytes(24)),
-    'substitua-a-senha-root-local' => bin2hex(random_bytes(24)),
     'gere-uma-chave-criptografica' => base64_encode(random_bytes(32)),
     'gere-uma-chave-de-acesso-local' => bin2hex(random_bytes(24)),
     'gere-um-token-interno' => bin2hex(random_bytes(32)),

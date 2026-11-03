@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS probe_evaluations (
     CONSTRAINT chk_probe_evaluations_status CHECK (status IN ('running', 'completed', 'failed')),
     UNIQUE KEY uq_probe_evaluations_public_id (public_id),
     KEY ix_probe_evaluations_import_created (dataset_import_id, created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS probe_evaluation_results (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS probe_evaluation_results (
     UNIQUE KEY uq_probe_evaluation_sample_architecture (probe_evaluation_id, dataset_sample_id, architecture_id),
     KEY ix_probe_evaluation_results_evaluation_outcome (probe_evaluation_id, architecture_id, outcome),
     KEY ix_probe_evaluation_results_sample (dataset_sample_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO schema_migrations (version) VALUES ('004_probe_evaluations')
 ON DUPLICATE KEY UPDATE version = VALUES(version);
