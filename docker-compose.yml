@@ -1,0 +1,27 @@
+name: reconhecimento-facial-v2
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: rf-v2-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${RFV2_DB_NAME}
+      MYSQL_USER: ${RFV2_DB_USER}
+      MYSQL_PASSWORD: ${RFV2_DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${RFV2_DB_ROOT_PASSWORD}
+    ports:
+      - "127.0.0.1:${RFV2_DB_PORT}:3306"
+    volumes:
+      - rf_v2_mysql_data:/var/lib/mysql
+      - ./database/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u \"$$MYSQL_USER\" -p\"$$MYSQL_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+volumes:
+  rf_v2_mysql_data:
+    name: rf_v2_mysql_data
