@@ -347,6 +347,7 @@
     document.querySelector('#previousSessions').addEventListener('click', () => { if (page > 1) { page--; loadDashboard(); } });
     document.querySelector('#nextSessions').addEventListener('click', () => { if (page < pages) { page++; loadDashboard(); } });
     window.addEventListener('resize', () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(loadDashboard, 250); });
+    document.querySelector('#metrics-tab')?.addEventListener('shown.bs.tab', () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(loadDashboard, 0); });
     window.addEventListener('rfv2:metrics-updated', () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(loadDashboard, 700); });
 
     (async () => {
