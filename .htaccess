@@ -1,0 +1,11 @@
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule (^|/)\. - [F,L]
+    RewriteRule ^(?:app|bin|config|database|python-service|storage|tests)(?:/|$) - [F,L,NC]
+</IfModule>
+
+<FilesMatch "^(?:\.env|docker-compose\.ya?ml)$">
+    Require all denied
+</FilesMatch>

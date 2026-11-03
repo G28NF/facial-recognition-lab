@@ -1,0 +1,38 @@
+# Configuracoes locais e segredos (o exemplo seguro permanece versionado).
+/.env
+/.env.*
+!/.env.example
+
+# Dados e artefatos locais gerados durante a execucao.
+/.phpunit.cache/
+/storage/logs/*.log
+/storage/tmp/*
+!/storage/logs/.gitkeep
+!/storage/tmp/.gitkeep
+
+# Datasets, arquivos compactados e backups locais nunca fazem parte do codigo-fonte.
+*.zip
+*.7z
+*.rar
+*.tar
+*.tar.gz
+*.sql.gz
+*.dump
+*.bak
+*.sqlite
+*.sqlite3
+*.db
+/database/backups/
+
+# Ambientes e caches locais de Python e ferramentas de teste.
+/python-service/.venv/
+/python-service/**/__pycache__/
+**/.pytest_cache/
+*.pyc
+
+# Pesos de modelos de terceiros: obtenha-os manualmente das fontes indicadas no README.
+# Eles nao sao dados de usuarios, mas nao sao redistribuidos neste repositorio.
+/public/assets/models/*
+!/public/assets/models/README.md
+/python-service/models/*
+!/python-service/models/README.md
