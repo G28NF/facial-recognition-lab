@@ -36,7 +36,6 @@ $ready = $infrastructure['database'] === 'disponivel';
         <div class="nav nav-tabs rfv2-tabs" id="moduleTabs" role="tablist">
             <button class="nav-link active" id="recognition-tab" data-bs-toggle="tab" data-bs-target="#recognition-pane" type="button" role="tab" aria-controls="recognition-pane" aria-selected="true">Reconhecimento</button>
             <button class="nav-link" id="registration-tab" data-bs-toggle="tab" data-bs-target="#registration-pane" type="button" role="tab" aria-controls="registration-pane" aria-selected="false">Cadastro</button>
-            <button class="nav-link" id="sessions-tab" data-bs-toggle="tab" data-bs-target="#sessions-pane" type="button" role="tab" aria-controls="sessions-pane" aria-selected="false">Sessões</button>
             <button class="nav-link" id="import-tab" data-bs-toggle="tab" data-bs-target="#import-pane" type="button" role="tab" aria-controls="import-pane" aria-selected="false">Importação</button>
             <button class="nav-link" id="metrics-tab" data-bs-toggle="tab" data-bs-target="#metrics-pane" type="button" role="tab" aria-controls="metrics-pane" aria-selected="false">Métricas</button>
         </div>
@@ -56,17 +55,41 @@ $ready = $infrastructure['database'] === 'disponivel';
                     </div>
                     <p id="status" class="status" aria-live="polite">Preparando aplicação...</p>
                 </section>
-
-                <section class="panel recognition-results" aria-labelledby="recognition-results-title">
-                    <div class="section-heading compact-heading"><div><p class="eyebrow">Resultado</p><h2 id="recognition-results-title">Arquiteturas A e B</h2></div></div>
+            </div>
+            <section class="panel continuous-panel" aria-labelledby="continuous-title">
+                <div class="section-heading">
+                    <div><p class="eyebrow">Processamento contínuo</p><h2 id="continuous-title">Sessões de reconhecimento</h2><p>As arquiteturas A e B processam o mesmo quadro quando um rosto está presente.</p></div>
+                    <strong id="sessionState" class="session-state idle">Inativa</strong>
+                </div>
+                <div class="session-controls">
+                    <label for="recognitionInterval">Intervalo (ms)</label>
+                    <input id="recognitionInterval" type="number" min="500" max="10000" step="100" value="1000">
+                    <button id="startSession" type="button" disabled>Iniciar sessão</button>
+                    <button id="pauseSession" type="button" class="secondary" disabled>Pausar</button>
+                    <button id="resumeSession" type="button" class="secondary" disabled>Retomar</button>
+                    <button id="endSession" type="button" class="danger" disabled>Encerrar sessão</button>
+                </div>
+                <p id="sessionStatus" class="status" aria-live="polite">Aguardando câmera e modelos.</p>
+                <div class="scheduler-summary">
+                    <span>Quadro <strong id="frameSequence">0</strong></span>
+                    <span>Intervalos perdidos <strong id="missedIntervals">0</strong></span>
+                    <span>Último atraso <strong id="schedulerDelay">0.000 ms</strong></span>
+                </div>
+                <section class="results-evaluation" aria-labelledby="evaluation-heading">
+                    <div class="section-heading compact-heading"><div><p class="eyebrow">Processamento contínuo</p><h3 id="evaluation-heading">Resultados e avaliação</h3><p>Compare as arquiteturas A e B no mesmo quadro. A identidade real é opcional.</p></div></div>
+                    <div class="session-controls"><label for="evaluationIdentitySearch">Identidade real (ground truth)<input id="evaluationIdentitySearch" type="search" placeholder="Pesquisar identidade"></label><label for="evaluationIdentity">Selecionada<select id="evaluationIdentity"><option value="">Nenhuma — reconhecimento normal</option></select></label></div>
                     <section id="result" class="result-panel" hidden aria-live="polite"></section>
                     <div class="continuous-results">
-                        <article class="engine-card" data-engine="A"><span>Arquitetura A</span><strong id="continuousResultA">—</strong><dl id="continuousMetricsA"></dl></article>
-                        <article class="engine-card" data-engine="B"><span>Arquitetura B</span><strong id="continuousResultB">—</strong><dl id="continuousMetricsB"></dl></article>
+                        <article class="engine-card" data-engine="A"><span>Arquitetura A</span><strong id="continuousResultA">—</strong><dl id="continuousMetricsA"></dl><p id="supervisedA" class="engine-evaluation">Sem avaliação supervisionada.</p></article>
+                        <article class="engine-card" data-engine="B"><span>Arquitetura B</span><strong id="continuousResultB">—</strong><dl id="continuousMetricsB"></dl><p id="supervisedB" class="engine-evaluation">Sem avaliação supervisionada.</p></article>
                     </div>
                     <p class="method-note recognition-note">Os resultados contínuos são atualizados durante uma sessão ativa.</p>
                 </section>
-            </div>
+            </section>
+            <section class="panel session-history-panel" aria-labelledby="session-history-title">
+                <div class="section-heading"><div><p class="eyebrow">Sessão atual</p><h2 id="session-history-title">Histórico por quadro</h2><p>Eventos persistidos das arquiteturas A e B, do mais recente para o mais antigo.</p></div><span id="sessionHistoryCount" class="session-state idle">0 eventos</span></div>
+                <div class="table-wrap"><table><thead><tr><th>Quadro</th><th>Horário</th><th>Arquitetura A</th><th>Tempo A</th><th>Arquitetura B</th><th>Tempo B</th></tr></thead><tbody id="currentSessionHistoryBody"><tr><td colspan="6">Inicie uma sessão para acompanhar os reconhecimentos.</td></tr></tbody></table></div>
+            </section>
         </section>
 
         <section class="tab-pane fade" id="registration-pane" role="tabpanel" aria-labelledby="registration-tab" tabindex="0">
@@ -106,39 +129,6 @@ $ready = $infrastructure['database'] === 'disponivel';
                 </section>
             </div>
         </section>
-
-        <section class="tab-pane fade" id="sessions-pane" role="tabpanel" aria-labelledby="sessions-tab" tabindex="0">
-            <section class="panel continuous-panel" aria-labelledby="continuous-title">
-                <div class="section-heading">
-                    <div><p class="eyebrow">Processamento contínuo</p><h2 id="continuous-title">Sessões de reconhecimento</h2><p>As arquiteturas A e B processam o mesmo quadro quando um rosto está presente.</p></div>
-                    <strong id="sessionState" class="session-state idle">Inativa</strong>
-                </div>
-                <div class="session-controls">
-                    <label for="recognitionInterval">Intervalo (ms)</label>
-                    <input id="recognitionInterval" type="number" min="500" max="10000" step="100" value="1000">
-                    <button id="startSession" type="button" disabled>Iniciar sessão</button>
-                    <button id="pauseSession" type="button" class="secondary" disabled>Pausar</button>
-                    <button id="resumeSession" type="button" class="secondary" disabled>Retomar</button>
-                    <button id="endSession" type="button" class="danger" disabled>Encerrar sessão</button>
-                </div>
-                <p id="sessionStatus" class="status" aria-live="polite">Aguardando câmera e modelos.</p>
-                <div class="scheduler-summary">
-                    <span>Quadro <strong id="frameSequence">0</strong></span>
-                    <span>Intervalos perdidos <strong id="missedIntervals">0</strong></span>
-                    <span>Último atraso <strong id="schedulerDelay">0.000 ms</strong></span>
-                </div>
-                <div class="accordion rfv2-accordion" id="sessionOptions">
-                    <div class="accordion-item">
-                        <h3 class="accordion-header" id="evaluation-heading"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#evaluation-options" aria-expanded="false" aria-controls="evaluation-options">Avaliação supervisionada (opcional)</button></h3>
-                        <div id="evaluation-options" class="accordion-collapse collapse" aria-labelledby="evaluation-heading" data-bs-parent="#sessionOptions">
-                            <div class="accordion-body">
-                                <div class="session-controls"><label for="evaluationIdentitySearch">Identidade real (ground truth)<input id="evaluationIdentitySearch" type="search" placeholder="Pesquisar identidade"></label><label for="evaluationIdentity">Selecionada<select id="evaluationIdentity"><option value="">Nenhuma — reconhecimento normal</option></select></label></div>
-                                <div class="continuous-results"><article class="engine-card"><span>Avaliação A</span><strong id="supervisedA">Selecione uma identidade</strong></article><article class="engine-card"><span>Avaliação B</span><strong id="supervisedB">Selecione uma identidade</strong></article></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </section>
         </section>
 
         <section class="tab-pane fade" id="import-pane" role="tabpanel" aria-labelledby="import-tab" tabindex="0">
