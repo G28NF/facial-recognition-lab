@@ -256,14 +256,26 @@
 
     const drawStagesChart = stages => {
         const {context, width, height} = prepareCanvas(document.querySelector('#stagesChart'));
-        const names = ['detection_ms', 'extraction_ms', 'mysql_query_ms', 'candidate_read_ms', 'embedding_decrypt_ms', 'comparison_ms', 'comparison_total_ms', 'php_python_roundtrip_ms'];
-        const labels = ['Detecção', 'Extração', 'Comparação', 'PHP–Python'];
-        const values = names.flatMap(name => ['A', 'B'].map(architecture => stages[architecture]?.[name]?.mean).filter(value => value !== undefined));
+        const stagesToPlot = [
+            {name: 'detection_ms', label: 'Detecção', shortLabel: 'Detecção'},
+            {name: 'extraction_ms', label: 'Extração', shortLabel: 'Extração'},
+            {name: 'mysql_query_ms', label: 'Consulta MySQL', shortLabel: 'Consulta'},
+            {name: 'candidate_read_ms', label: 'Leitura de candidatos', shortLabel: 'Leitura'},
+            {name: 'embedding_decrypt_ms', label: 'Descriptografia', shortLabel: 'Decifr.'},
+            {name: 'comparison_ms', label: 'Comparação', shortLabel: 'Comparar'},
+            {name: 'comparison_total_ms', label: 'Comparação total', shortLabel: 'Comp. total'},
+            {name: 'php_python_roundtrip_ms', label: 'PHP–Python', shortLabel: 'PHP–Py'},
+        ];
+        const values = stagesToPlot.flatMap(({name}) => ['A', 'B'].map(architecture => stages[architecture]?.[name]?.mean).filter(value => value !== undefined));
         if (!values.length) { noChartData(context, width, height); return; }
         const max = Math.max(...values) * 1.1 || 1;
-        const top = 25, bottom = 55, left = 42, plotHeight = height - top - bottom;
-        const groupWidth = (width - left - 15) / names.length;
-        names.forEach((name, index) => {
+        const top = 25, left = 42;
+        const groupWidth = (width - left - 15) / stagesToPlot.length;
+        const useShortLabels = groupWidth < 82;
+        const rotateLabels = groupWidth < 55;
+        const bottom = rotateLabels ? 78 : 55;
+        const plotHeight = height - top - bottom;
+        stagesToPlot.forEach(({name, label, shortLabel}, index) => {
             ['A', 'B'].forEach((architecture, position) => {
                 const value = stages[architecture]?.[name]?.mean;
                 if (value === undefined) return;
@@ -274,8 +286,20 @@
                 context.fillRect(x, top + plotHeight - barHeight, barWidth - 2, barHeight);
             });
             context.fillStyle = '#8fa4bd';
-            context.textAlign = 'center';
-            context.fillText(labels[index], left + index * groupWidth + groupWidth / 2, height - 28);
+            context.font = '12px system-ui';
+            const x = left + index * groupWidth + groupWidth / 2;
+            const chartLabel = useShortLabels ? shortLabel : label;
+            if (rotateLabels) {
+                context.save();
+                context.translate(x, height - 10);
+                context.rotate(-Math.PI / 4);
+                context.textAlign = 'right';
+                context.fillText(chartLabel, 0, 0);
+                context.restore();
+            } else {
+                context.textAlign = 'center';
+                context.fillText(chartLabel, x, height - 28);
+            }
         });
         context.fillStyle = '#4fa3ff'; context.fillText('A', width - 48, 15);
         context.fillStyle = '#5ee0a3'; context.fillText('B', width - 20, 15);

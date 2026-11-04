@@ -1,73 +1,110 @@
 # Reconhecimento Facial V2
 
-## Descricao do projeto
+## Descrição do projeto
 
-Aplicacao local para cadastro e reconhecimento facial com persistencia protegida de identidades, embeddings e metricas. A arquitetura **A** executa reconhecimento no navegador com JavaScript e registra os resultados via PHP. A arquitetura **B** usa o servico Python/FastAPI para o processamento facial e o PHP para a aplicacao e persistencia.
+Aplicação para cadastro e reconhecimento facial, desenvolvida para comparar duas arquiteturas:
+
+- **Arquitetura A:** JavaScript (Face API.js) para processamento facial no navegador e PHP para comparação e persistência.
+- **Arquitetura B:** Python (OpenCV YuNet/SFace e FastAPI) para processamento facial e PHP para comparação e persistência.
+
+O sistema utiliza MariaDB para armazenar identidades, embeddings criptografados e métricas de desempenho.
 
 ## Requisitos
 
-- Windows com XAMPP (Apache, MySQL ou MariaDB e PHP) instalado;
-- PHP com extensoes `pdo_mysql`, `openssl` e `mbstring` habilitadas;
-- Python 3.11 ou compativel e `pip`;
-- Git, para obter o projeto;
-- webcam e navegador moderno, para os fluxos de captura.
+- XAMPP com Apache, PHP e MySQL/MariaDB.
+- PHP com `pdo_mysql`, `openssl` e `mbstring`.
+- Python 3.12 e pip.
+- Git e navegador com acesso à webcam.
 
-## Instalacao
+## Instalação
 
-No PowerShell, obtenha ou atualize o projeto no diretorio publico do XAMPP:
+**1. Clone o repositório** dentro da pasta `htdocs` do XAMPP:
 
 ```powershell
-cd C:\xampp\htdocs\RF
-git clone <url-do-repositorio> ReconhecimentoFacial-2
-cd .\ReconhecimentoFacial-2
+cd C:\xampp\htdocs
+git clone https://github.com/G28NF/facial-recognition-lab.git ReconhecimentoFacial-2
+cd ReconhecimentoFacial-2
 ```
 
-Se o projeto ja estiver presente, entre no diretorio existente em vez de clona-lo. Nao copie um `.env` de outro ambiente sem preservar a chave de dados correspondente.
+**2. Configure o ambiente Python:**
 
-## Configuracao
+```powershell
+.\bin\setup-python.ps1
+```
 
-1. Crie o arquivo de configuracao local sem exibir segredos:
+**3. Instale manualmente os modelos faciais**, seguindo as instruções dos respectivos arquivos:
 
-   ```powershell
-   php .\bin\generate-local-env.php
-   ```
+- [Face API.js](public/assets/models/README.md): sete arquivos em `public/assets/models/`.
+- [YuNet e SFace](python-service/models/README.md): dois arquivos ONNX em `python-service/models/`.
 
-   Se `.env` ja existir, mantenha `RFV2_DATA_KEY` e ajuste somente a conexao necessaria. Nao gere uma nova chave para uma base que ja contenha dados criptografados.
+Os modelos não são baixados automaticamente.
 
-2. Configure o banco no `.env` para o MySQL/MariaDB do XAMPP:
+## Configuração
 
-   ```ini
-   RFV2_DB_HOST=127.0.0.1
-   RFV2_DB_PORT=3306
-   RFV2_DB_NAME=rf_v2
-   RFV2_DB_USER=rf_v2_app
-   RFV2_DB_PASSWORD=defina-uma-senha-local-segura
-   RFV2_DB_CHARSET=utf8mb4
-   ```
+**1. Gere o arquivo `.env`:**
 
-   Crie o banco e conceda acesso ao usuario configurado. As migrations usam `utf8mb4_unicode_ci`, compativel com o MariaDB distribuido pelo XAMPP:
+```powershell
+php .\bin\generate-local-env.php
+```
 
-   ```powershell
-   & C:\xampp\mysql\bin\mysql.exe -u root -e "CREATE DATABASE IF NOT EXISTS rf_v2 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CREATE USER IF NOT EXISTS 'rf_v2_app'@'127.0.0.1' IDENTIFIED BY 'defina-uma-senha-local-segura'; GRANT ALL PRIVILEGES ON rf_v2.* TO 'rf_v2_app'@'127.0.0.1'; FLUSH PRIVILEGES;"
-   php .\database\migrate.php
-   ```
+Se já existir um `.env`, mantenha-o. A chave `RFV2_DATA_KEY` deve ser preservada para acessar dados criptografados existentes.
 
-   Para migrar uma base anterior em Docker, gere e valide um dump antes de importar dados. Mantenha o container e o volume originais ate conferir a contagem das tabelas, os cadastros e os reconhecimentos no MariaDB do XAMPP.
+**2. Configure o endereço da aplicação e o banco no `.env`:**
 
-3. Prepare o servico Python e baixe os modelos faciais conforme o script do projeto:
+```ini
+APP_BASE_URL=http://localhost/ReconhecimentoFacial-2/public
 
-   ```powershell
-   .\bin\setup-python.ps1
-   ```
+RFV2_DB_HOST=127.0.0.1
+RFV2_DB_PORT=3306
+RFV2_DB_NAME=rf_v2
+RFV2_DB_USER=rf_v2_app
+RFV2_DB_PASSWORD=sua_senha
+```
 
-## Execucao
+Ajuste `APP_BASE_URL` se o projeto estiver em outro diretório.
 
-1. No painel do XAMPP, inicie **Apache** e **MySQL**.
-2. Em outro PowerShell, inicie a API Python:
+**3. Inicie o MySQL pelo XAMPP e crie o banco e o usuário:**
 
-   ```powershell
-   cd C:\xampp\htdocs\RF\ReconhecimentoFacial-2
-   .\bin\start-python.ps1
-   ```
+```powershell
+& C:\xampp\mysql\bin\mysql.exe -u root -p
+```
 
-3. Acesse `http://localhost/RF/ReconhecimentoFacial-2/public/` no navegador e permita o uso da webcam quando solicitado.
+```sql
+CREATE DATABASE rf_v2 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'rf_v2_app'@'127.0.0.1' IDENTIFIED BY 'sua_senha';
+GRANT ALL PRIVILEGES ON rf_v2.* TO 'rf_v2_app'@'127.0.0.1';
+EXIT;
+```
+
+Utilize a mesma senha definida no `.env`. Se o banco ou usuário já existirem, aproveite a configuração existente, sem recriá-los.
+
+**4. Execute as migrations:**
+
+```powershell
+php .\database\migrate.php
+```
+
+## Execução
+
+**1.** Inicie Apache e MySQL no painel do XAMPP.
+
+**2.** Abra um PowerShell na pasta do projeto e inicie o FastAPI:
+
+```powershell
+.\bin\start-python.ps1
+```
+
+**3.** Verifique os serviços:
+
+```powershell
+curl.exe http://127.0.0.1:8021/health
+curl.exe "http://localhost/ReconhecimentoFacial-2/public/?route=health"
+```
+
+**4.** Acesse:
+
+http://localhost/ReconhecimentoFacial-2/public/
+
+Utilize a chave `RFV2_ACCESS_KEY` disponível no `.env` para autenticação e permita o acesso à webcam.
+
+Mantenha o FastAPI em execução durante o uso da aplicação.

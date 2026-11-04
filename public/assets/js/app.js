@@ -133,7 +133,7 @@
 
     const renderSupervised = () => {
         for (const architecture of ['A', 'B']) { const item = supervised[architecture], completed = item.correct + item.incorrect + item.notRecognized;
-            document.querySelector(`#supervised${architecture}`).textContent = activeEvaluationIdentityId ? `A ${item.correct} · I ${item.incorrect} · N ${item.notRecognized} · F ${item.technical} · acerto ${completed ? (item.correct * 100 / completed).toFixed(2) + '%' : '—'} · pareados ${supervisedPaired}` : 'Sem ground truth'; }
+            document.querySelector(`#supervised${architecture}`).textContent = activeEvaluationIdentityId ? `A ${item.correct} · I ${item.incorrect} · N ${item.notRecognized} · F ${item.technical} · acerto ${completed ? (item.correct * 100 / completed).toFixed(2) + '%' : '—'} · pareados ${supervisedPaired}` : 'Sem avaliação supervisionada.'; }
     };
     const resetSupervised = () => { supervisedPaired = 0; for (const architecture of ['A', 'B']) Object.assign(supervised[architecture], {correct: 0, incorrect: 0, notRecognized: 0, technical: 0}); renderSupervised(); };
     const loadEvaluationIdentities = async query => { const params = new URLSearchParams({offset: '0', limit: '20'}); if (query) params.set('query', query); const data = await request(`people&${params.toString()}`); const select = document.querySelector('#evaluationIdentity'), current = select.value; select.replaceChildren(new Option('Nenhuma — reconhecimento normal', '')); for (const person of data.people) select.add(new Option(`${person.name} · ID ${person.id}`, String(person.id))); if ([...select.options].some(option => option.value === current)) select.value = current; };
@@ -359,6 +359,48 @@
         }
     };
 
+    const currentSessionHistory = [];
+    const historyResult = item => {
+        if (!item) return 'Indisponível';
+        if (item.status === 'recognized') return item.name ? `Reconhecida: ${item.name}` : `Reconhecida: ID ${item.id}`;
+        if (item.status === 'error') return item.failure || 'Falha técnica';
+        return item.status === 'inconclusive' ? 'Inconclusivo' : 'Desconhecida';
+    };
+
+    const historyTime = item => {
+        const value = item?.metrics?.pipeline_total_ms;
+        return value === null || value === undefined ? '—' : `${Number(value).toFixed(3)} ms`;
+    };
+
+    const renderCurrentSessionHistory = () => {
+        const body = document.querySelector('#currentSessionHistoryBody');
+        const count = document.querySelector('#sessionHistoryCount');
+        body.replaceChildren();
+        count.textContent = `${currentSessionHistory.length} evento${currentSessionHistory.length === 1 ? '' : 's'}`;
+        count.className = `session-state ${currentSessionHistory.length ? 'running' : 'idle'}`;
+        for (const event of currentSessionHistory) {
+            const byArchitecture = Object.fromEntries(event.results.map(item => [item.architecture, item]));
+            const row = document.createElement('tr');
+            const values = [event.sequence, event.occurredAt.toLocaleTimeString('pt-BR'), historyResult(byArchitecture.A), historyTime(byArchitecture.A), historyResult(byArchitecture.B), historyTime(byArchitecture.B)];
+            values.forEach(value => { const cell = document.createElement('td'); cell.textContent = value; row.append(cell); });
+            body.append(row);
+        }
+        if (!currentSessionHistory.length) {
+            const row = document.createElement('tr');
+            const cell = document.createElement('td');
+            cell.colSpan = 6;
+            cell.textContent = 'Aguardando o primeiro reconhecimento registrado.';
+            row.append(cell);
+            body.append(row);
+        }
+    };
+
+    const recordCurrentSessionFrame = (sequence, results) => {
+        currentSessionHistory.unshift({sequence, results, occurredAt: new Date()});
+        if (currentSessionHistory.length > 100) currentSessionHistory.pop();
+        renderCurrentSessionHistory();
+    };
+
     const renderResult = (data) => {
         result.hidden = false;
         result.replaceChildren();
@@ -503,9 +545,9 @@
             const roundTotal = performance.now() - officialStarted;
             const shared = {browser_php_roundtrip_ms: browserRoundtrip};
             renderContinuous(data.results, shared);
+            recordCurrentSessionFrame(sequence, data.results);
             if (activeEvaluationIdentityId) { if (data.results.length === 2 && data.results.every(item => item.status !== 'error')) supervisedPaired++; for (const item of data.results) { const stats = supervised[item.architecture]; if (item.status === 'error') stats.technical++; else if (item.status === 'recognized') item.id === activeEvaluationIdentityId ? stats.correct++ : stats.incorrect++; else stats.notRecognized++; } renderSupervised(); }
             await request('session-finalize', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({session_token: session.token, frame_sequence: sequence, metrics: {browser_php_roundtrip_ms: browserRoundtrip, comparative_round_total_ms: roundTotal}})});
-            window.dispatchEvent(new CustomEvent('rfv2:metrics-updated'));
             sessionStatus.textContent = `Quadro ${sequence} concluído sem sobreposição.`;
         } catch (error) {
             sessionStatus.textContent = `Falha no quadro ${sequence}: ${error.message}. A próxima rodada será tentada.`;
@@ -532,6 +574,8 @@
             session.intervalMs = data.interval_ms;
             session.sequence = 0;
             session.missed = 0;
+            currentSessionHistory.length = 0;
+            renderCurrentSessionHistory();
             session.nextDue = performance.now();
             session.state = 'running';
             document.querySelector('#frameSequence').textContent = '0';

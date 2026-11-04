@@ -237,15 +237,18 @@ footer { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--rif-
 .rfv2-tabs .nav-link.active { border-color: var(--rif-border) var(--rif-border) var(--rif-panel); background: var(--rif-panel); color: var(--rif-text); }
 .rfv2-tab-content { min-height: 520px; }
 .recognition-layout, .registration-layout { display: grid; gap: 1rem; align-items: start; }
-.recognition-layout { grid-template-columns: minmax(0, 1.2fr) minmax(360px, .8fr); }
+.recognition-layout { grid-template-columns: minmax(0, 1fr); }
 .registration-layout { grid-template-columns: minmax(280px, .65fr) minmax(0, 1.35fr); }
 .registration-layout .registration-panel { width: auto; }
 .camera-panel .video-wrap { width: min(100%, 780px); aspect-ratio: 16 / 9; }
-.recognition-results { min-height: 100%; }
-.recognition-results #result:not([hidden]) { margin-top: 1rem; padding: 1rem; border: 1px solid var(--rif-border); background: var(--rif-control); }
-.recognition-results .continuous-results { grid-template-columns: 1fr; }
 .compact-heading { margin-bottom: .25rem; }
 .recognition-note { margin: 1rem 0 0; }
+.results-evaluation { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--rif-border); }
+.results-evaluation #result:not([hidden]) { margin-top: 1rem; padding: 1rem; border: 1px solid var(--rif-border); background: var(--rif-control); }
+.results-evaluation .session-controls { margin-top: 1rem; }
+.engine-evaluation { min-height: 1.25rem; margin: .75rem 0 0; padding-top: .75rem; border-top: 1px solid var(--rif-border); color: var(--rif-muted); font-size: .8rem; }
+.session-history-panel { margin-top: 1rem; }
+.session-history-panel td:nth-child(3), .session-history-panel td:nth-child(5) { white-space: normal; min-width: 170px; }
 
 .rfv2-accordion { margin-top: 1rem; }
 .rfv2-accordion .accordion-item { overflow: hidden; border: 1px solid var(--rif-border); border-radius: 3px; background: var(--rif-control); color: var(--rif-text); }
@@ -260,11 +263,9 @@ footer { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--rif-
 @media (max-width: 980px) {
     .recognition-layout, .registration-layout { grid-template-columns: 1fr; }
     .camera-panel .video-wrap { max-width: 780px; }
-    .recognition-results .continuous-results { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 620px) {
     .rfv2-tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 1px; }
     .rfv2-tabs .nav-link { flex: 0 0 auto; }
     .rfv2-tab-content { min-height: 0; }
-    .recognition-results .continuous-results { grid-template-columns: 1fr; }
 }
