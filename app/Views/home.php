@@ -198,7 +198,7 @@ $ready = $infrastructure['database'] === 'disponivel';
                 <div class="table-wrap"><table><thead><tr><th>Escopo</th><th>Arquitetura</th><th>Válidas</th><th>Execuções</th><th>Falhas</th><th>Média</th><th>Mediana</th><th>P95</th><th>Mínimo</th><th>Máximo</th><th>Desvio populacional</th></tr></thead><tbody id="statisticsBody"></tbody></table></div>
                 <section class="lifecycle-panel" aria-labelledby="lifecycle-title">
                     <h3 id="lifecycle-title">Inicialização e aquecimento da sessão selecionada</h3>
-                    <p class="method-note">Inicialização não integra a latência oficial por quadro. Métricas ausentes em sessões históricas permanecem como indisponíveis.</p>
+                    <p class="method-note">Inicialização não integra o tempo completo de processamento oficial por quadro. Métricas ausentes em sessões históricas permanecem como indisponíveis.</p>
                     <div class="table-wrap"><table><thead><tr><th>Arquitetura</th><th>Fase</th><th>Amostras</th><th>Média</th><th>Mediana</th><th>P95</th><th>Máximo</th></tr></thead><tbody id="lifecycleBody"></tbody></table></div>
                 </section>
                 <section class="precision-panel" aria-labelledby="precision-title">

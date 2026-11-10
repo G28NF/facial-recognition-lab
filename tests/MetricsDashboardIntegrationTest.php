@@ -27,7 +27,7 @@ $tokens = [];
 $result = static fn(string $status, float $total, ?string $failure = null, bool $withAmbiguity = true): array => [
     'status' => $status, 'id' => null, 'distance_squared' => $status === 'error' ? null : .5,
     'compared_embeddings' => $status === 'error' ? 0 : 1, 'error' => $failure,
-    'metrics' => ['detection_ms' => $total / 4, 'extraction_ms' => $total / 4, 'comparison_ms' => $total / 10, 'pipeline_total_ms' => $total],
+    'metrics' => ['detection_ms' => $total / 4, 'extraction_ms' => $total / 4, 'comparison_ms' => $total / 10, 'pipeline_total_ms' => $total, 'end_to_end_ms' => $total],
 ] + ($withAmbiguity ? [
     'best_candidate_identity_id' => $status === 'error' ? null : 10,
     'best_candidate_distance_squared' => $status === 'error' ? null : .5,
@@ -111,7 +111,8 @@ try {
     $rows = iterator_to_array($dashboard->exportRows($token));
     $types = array_unique(array_column($rows, 'record_type'));
     $serializedRows = json_encode($rows, JSON_THROW_ON_ERROR);
-    if (!in_array('recognition', $types, true) || !in_array('session_metric', $types, true) || str_contains($serializedRows, '"embedding":') || str_contains($serializedRows, '"image":') || str_contains($serializedRows, 'data:image')) {
+    $headers = $dashboard->csvHeaders();
+    if (!in_array('recognition', $types, true) || !in_array('session_metric', $types, true) || !in_array('http_roundtrip_ms', $headers, true) || !in_array('end_to_end_ms', $headers, true) || !in_array('request_payload_bytes', $headers, true) || str_contains($serializedRows, '"embedding":') || str_contains($serializedRows, '"image":') || str_contains($serializedRows, 'data:image')) {
         throw new RuntimeException('Exportacao nao separou registros ou incluiu dado biometrico.');
     }
 

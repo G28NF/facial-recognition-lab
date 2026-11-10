@@ -94,14 +94,14 @@ final class MysqlVideoSessionRepository
         });
     }
 
-    /** @param array{A:float,B:float} $warmupMetrics @param array<string,int|float> $monitoringMetrics */
+    /** @param array{A:?float,B:float} $warmupMetrics @param array<string,int|float> $monitoringMetrics */
     public function recordWarmup(string $token, int $frameSequence, int $missedIntervals, array $warmupMetrics, array $monitoringMetrics, ?float $faceapiFirstInferenceMs = null): void
     {
         $this->connection->transaction(function (PDO $pdo) use ($token, $frameSequence, $missedIntervals, $warmupMetrics, $faceapiFirstInferenceMs, $monitoringMetrics): void {
             $sessions = $this->sessions($pdo, $token, true);
             $this->requireRunning($sessions);
             $this->advance($pdo, $sessions['ids'], $frameSequence, $missedIntervals);
-            $this->insertSessionMetric($pdo, $sessions['ids']['A'], 'warmup_ms', $warmupMetrics['A'], 'ms');
+            if ($warmupMetrics['A'] !== null) $this->insertSessionMetric($pdo, $sessions['ids']['A'], 'warmup_ms', $warmupMetrics['A'], 'ms');
             $this->insertSessionMetric($pdo, $sessions['ids']['B'], 'warmup_ms', $warmupMetrics['B'], 'ms');
             if ($faceapiFirstInferenceMs !== null) $this->insertSessionMetric($pdo, $sessions['ids']['A'], 'first_inference_ms', $faceapiFirstInferenceMs, 'ms');
             $this->insertSessionMetric($pdo, $sessions['ids']['B'], 'first_inference_ms', $warmupMetrics['B'], 'ms');
@@ -158,19 +158,53 @@ final class MysqlVideoSessionRepository
         });
     }
 
+    /** @param array<string,mixed> $result @param array<string,float|int> $monitoringMetrics @param array<string,float> $thresholds */
+    public function recordArchitectureResult(string $token, string $architecture, int $frameSequence, int $missedIntervals, array $result, array $monitoringMetrics, array $thresholds): void
+    {
+        if (!in_array($architecture, ['A', 'B'], true)) throw new DomainException('Arquitetura invalida.', 422);
+        $this->connection->transaction(function (PDO $pdo) use ($token, $architecture, $frameSequence, $missedIntervals, $result, $monitoringMetrics, $thresholds): void {
+            $sessions = $this->sessions($pdo, $token, true);
+            $this->requireRunning($sessions);
+            $this->advance($pdo, [$architecture => $sessions['ids'][$architecture]], $frameSequence, $missedIntervals);
+            foreach ($this->sanitizeMetrics($monitoringMetrics) as $name => $value) $this->insertSessionMetric($pdo, $sessions['ids']['A'], $name, $value, str_ends_with($name, '_count') ? 'count' : 'ms');
+            $status = in_array($result['status'] ?? null, ['recognized', 'unknown', 'inconclusive', 'error'], true) ? $result['status'] : 'error';
+            $event = $pdo->prepare('INSERT INTO recognition_events
+                (video_session_id, architecture_id, matched_identity_id, frame_sequence, result, score, threshold, occurred_at, metadata)
+                VALUES (:session_id, :architecture_id, :identity_id, :frame_sequence, :result, :score, :threshold, UTC_TIMESTAMP(3), :metadata)');
+            $event->execute([
+                'session_id' => $sessions['ids'][$architecture], 'architecture_id' => $architecture,
+                'identity_id' => $status === 'recognized' ? ($result['id'] ?? null) : null, 'frame_sequence' => $frameSequence,
+                'result' => $status, 'score' => is_numeric($result['distance_squared'] ?? null) ? $result['distance_squared'] : null, 'threshold' => $thresholds[$architecture],
+                'metadata' => json_encode(['compared_embeddings' => (int) ($result['compared_embeddings'] ?? 0), 'failure' => $status === 'error' ? (string) ($result['error'] ?? 'processing_failure') : null,
+                    'best_candidate_identity_id' => isset($result['best_candidate_identity_id']) ? (int) $result['best_candidate_identity_id'] : null,
+                    'best_candidate_distance_squared' => is_numeric($result['best_candidate_distance_squared'] ?? null) ? (float) $result['best_candidate_distance_squared'] : null,
+                    'second_candidate_identity_id' => isset($result['second_candidate_identity_id']) ? (int) $result['second_candidate_identity_id'] : null,
+                    'second_candidate_distance_squared' => is_numeric($result['second_candidate_distance_squared'] ?? null) ? (float) $result['second_candidate_distance_squared'] : null,
+                    'candidate_distance_delta_squared' => is_numeric($result['candidate_distance_delta_squared'] ?? null) ? (float) $result['candidate_distance_delta_squared'] : null,
+                    'ambiguity_margin_squared' => is_numeric($result['ambiguity_margin_squared'] ?? null) ? (float) $result['ambiguity_margin_squared'] : null,
+                    'decision_reason' => is_string($result['decision_reason'] ?? null) ? $result['decision_reason'] : ($status === 'error' ? 'technical_failure' : $status)], JSON_THROW_ON_ERROR),
+            ]);
+            $eventId = (int) $pdo->lastInsertId();
+            foreach ($this->sanitizeMetrics(is_array($result['metrics'] ?? null) ? $result['metrics'] : []) as $name => $value) $this->insertEventMetric($pdo, $eventId, $sessions['ids'][$architecture], $name, $value);
+            $this->recordSupervisedArchitectureResult($pdo, $sessions['group'], $eventId, $result);
+        });
+    }
+
     /** @param array<string,int|float> $metrics */
-    public function finalizeRound(string $token, int $frameSequence, array $metrics): void
+    public function finalizeRound(string $token, int $frameSequence, array $metrics, ?string $architecture = null): void
     {
         $pdo = $this->connection->pdo();
         $group = $this->groupBytes($token);
+        if ($architecture !== null && !in_array($architecture, ['A', 'B'], true)) throw new DomainException('Arquitetura invalida.', 422);
         $events = $pdo->prepare('SELECT re.id, re.video_session_id FROM recognition_events re
             INNER JOIN video_sessions vs ON vs.id = re.video_session_id
-            WHERE vs.session_group_id = :session_group_id AND re.frame_sequence = :frame_sequence');
+            WHERE vs.session_group_id = :session_group_id AND re.frame_sequence = :frame_sequence'.($architecture === null ? '' : ' AND re.architecture_id = :architecture'));
         $events->bindValue(':session_group_id', $group, PDO::PARAM_LOB);
         $events->bindValue(':frame_sequence', $frameSequence, PDO::PARAM_INT);
+        if ($architecture !== null) $events->bindValue(':architecture', $architecture);
         $events->execute();
         $rows = $events->fetchAll();
-        if (count($rows) !== 2) {
+        if (count($rows) !== ($architecture === null ? 2 : 1)) {
             throw new DomainException('Rodada comparativa nao encontrada.', 404);
         }
         foreach ($rows as $row) {
@@ -279,6 +313,17 @@ final class MysqlVideoSessionRepository
         foreach (['A','B'] as $architecture) { $result=$results[$architecture]; $status=$result['status'] ?? 'error'; $predicted=$status==='recognized' ? ($result['id'] ?? null) : null;
             $outcome=$status==='error' ? 'technical_failure' : ($status==='recognized' ? ((int)$predicted===(int)$row['expected_identity_id'] ? 'correct':'incorrect') : 'not_recognized');
             $insert->execute(['segment'=>$row['id'],'event'=>$events[$architecture],'expected'=>$row['expected_identity_id'],'predicted'=>$predicted,'outcome'=>$outcome]); }
+    }
+
+    /** @param array<string,mixed> $result */
+    private function recordSupervisedArchitectureResult(PDO $pdo, string $group, int $eventId, array $result): void
+    {
+        $segment=$pdo->prepare('SELECT id,expected_identity_id FROM webcam_evaluation_segments WHERE session_group_id=:group AND ended_at IS NULL LIMIT 1');
+        $segment->bindValue(':group',$group,PDO::PARAM_LOB); $segment->execute(); $row=$segment->fetch(); if (!is_array($row)) return;
+        $status=$result['status'] ?? 'error'; $predicted=$status==='recognized' ? ($result['id'] ?? null) : null;
+        $outcome=$status==='error' ? 'technical_failure' : ($status==='recognized' ? ((int)$predicted===(int)$row['expected_identity_id'] ? 'correct':'incorrect') : 'not_recognized');
+        $insert=$pdo->prepare('INSERT INTO webcam_evaluation_results (webcam_evaluation_segment_id,recognition_event_id,expected_identity_id,predicted_identity_id,outcome,created_at) VALUES (:segment,:event,:expected,:predicted,:outcome,UTC_TIMESTAMP(3))');
+        $insert->execute(['segment'=>$row['id'],'event'=>$eventId,'expected'=>$row['expected_identity_id'],'predicted'=>$predicted,'outcome'=>$outcome]);
     }
 
     private function groupBytes(string $token): string

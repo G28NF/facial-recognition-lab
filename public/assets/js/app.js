@@ -96,14 +96,14 @@
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         canvas.getContext('2d').drawImage(video, 0, 0);
-        return {image: canvas.toDataURL('image/jpeg', 0.9), captureMs: performance.now() - started};
+        return {captureMs: performance.now() - started};
     };
 
-    const detectPresence = async () => {
+    const encodeFrame = () => {
         const started = performance.now();
-        const detections = await faceapi.detectAllFaces(canvas, new faceapi.TinyFaceDetectorOptions());
-        return {count: detections.length, detectionMs: performance.now() - started};
+        return {image: canvas.toDataURL('image/jpeg', 0.9), imageEncodeMs: performance.now() - started};
     };
+    const payloadBytes = body => new TextEncoder().encode(body).byteLength;
 
     const faceApiEmbeddingFromCanvas = async (sourceCanvas) => {
         await loadModels();
@@ -344,7 +344,10 @@
         ['Pipeline total', data.metrics?.pipeline_total_ms],
         ['Round-trip PHP–Python', data.metrics?.php_python_roundtrip_ms],
         ['Overhead PHP–Python', data.metrics?.php_python_overhead_ms],
-        ['Round-trip navegador–PHP', data.metrics?.browser_php_roundtrip_ms]
+        ['Codificação JPEG', data.metrics?.image_encode_ms],
+        ['Comunicação HTTP', data.metrics?.http_roundtrip_ms],
+        ['Tempo completo de processamento', data.metrics?.end_to_end_ms],
+        ['Bytes enviados', data.metrics?.request_payload_bytes, 'integer']
     ];
 
     const appendMetrics = (container, rows) => {
@@ -442,7 +445,8 @@
         manualButtons.forEach(button => { button.disabled = true; });
         try {
             status.textContent = 'Extraindo com YuNet e SFace...';
-            const frame = captureFrame();
+            captureFrame();
+            const frame = encodeFrame();
             const started = performance.now();
             const data = await request('recognize-b', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({image: frame.image})});
             pythonPipelineWarmed = true;
@@ -459,7 +463,8 @@
         manualButtons.forEach(button => { button.disabled = true; });
         try {
             status.textContent = 'Gerando os dois embeddings...';
-            const frame = captureFrame();
+            captureFrame();
+            const frame = encodeFrame();
             const face = await faceApiEmbedding();
             const data = await request('register', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name, consent, image: frame.image, faceapi_embedding: face.embedding})});
             pythonPipelineWarmed = true;
@@ -499,55 +504,71 @@
         let monitoringMetrics = {scheduler_delay_ms: schedulerDelay};
         try {
             const frame = captureFrame();
-            const presence = await detectPresence();
             monitoringMetrics = {
                 ...monitoringMetrics,
-                capture_ms: frame.captureMs,
-                presence_detection_ms: presence.detectionMs,
-                faces_detected_count: presence.count
+                capture_ms: frame.captureMs
             };
-            if (presence.count !== 1) {
-                sequenceSubmissionStarted = true;
-                await request('session-presence', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({session_token: session.token, frame_sequence: sequence, missed_intervals: missed, monitoring_metrics: monitoringMetrics})});
-                committed = true;
-                sessionStatus.textContent = presence.count === 0 ? 'Nenhum rosto no enquadramento.' : 'Mais de um rosto no enquadramento.';
-                return;
-            }
 
-            if (!faceApiPipelineWarmed || !pythonPipelineWarmed) {
+            if (!pythonPipelineWarmed) {
                 sessionStatus.textContent = 'Aquecendo os pipelines com o primeiro rosto...';
-                const warmupStarted = performance.now();
-                const warmupFace = await faceApiEmbedding();
-                const faceapiWarmupMs = performance.now() - warmupStarted;
+                let faceapiWarmupMs = null;
+                let faceapiFirstInferenceMs = null;
+                if (!faceApiPipelineWarmed) {
+                    const warmupStarted = performance.now();
+                    try {
+                        const warmupFace = await faceApiEmbedding();
+                        faceapiWarmupMs = performance.now() - warmupStarted;
+                        faceapiFirstInferenceMs = warmupFace.metrics.first_inference_ms ?? null;
+                    } catch (_) {}
+                }
                 sequenceSubmissionStarted = true;
-                await request('session-warmup', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({session_token: session.token, frame_sequence: sequence, missed_intervals: missed, image: frame.image, faceapi_warmup_ms: faceapiWarmupMs, faceapi_first_inference_ms: warmupFace.metrics.first_inference_ms ?? null, monitoring_metrics: monitoringMetrics})});
+                const warmupFrame = encodeFrame();
+                await request('session-warmup', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({session_token: session.token, frame_sequence: sequence, missed_intervals: missed, image: warmupFrame.image, ...(faceapiWarmupMs === null ? {} : {faceapi_warmup_ms: faceapiWarmupMs}), ...(faceapiFirstInferenceMs === null ? {} : {faceapi_first_inference_ms: faceapiFirstInferenceMs}), monitoring_metrics: monitoringMetrics})});
                 pythonPipelineWarmed = true;
                 committed = true;
                 sessionStatus.textContent = 'Pipelines aquecidos; medições oficiais começam no próximo quadro.';
                 return;
             }
 
-            const officialStarted = performance.now();
-            const face = await faceApiEmbedding();
-            const requestStarted = performance.now();
-            sequenceSubmissionStarted = true;
-            const data = await request('session-frame', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
-                session_token: session.token,
-                frame_sequence: sequence,
-                missed_intervals: missed,
-                image: frame.image,
-                faceapi_embedding: face.embedding,
-                faceapi_metrics: face.metrics,
-                monitoring_metrics: monitoringMetrics
-            })});
-            committed = true;
-            const browserRoundtrip = performance.now() - requestStarted;
-            const roundTotal = performance.now() - officialStarted;
-            const shared = {browser_php_roundtrip_ms: browserRoundtrip};
-            renderContinuous(data.results, shared);
-            recordCurrentSessionFrame(sequence, data.results);
-            if (activeEvaluationIdentityId) { if (data.results.length === 2 && data.results.every(item => item.status !== 'error')) supervisedPaired++; for (const item of data.results) { const stats = supervised[item.architecture]; if (item.status === 'error') stats.technical++; else if (item.status === 'recognized') item.id === activeEvaluationIdentityId ? stats.correct++ : stats.incorrect++; else stats.notRecognized++; } renderSupervised(); }
-            await request('session-finalize', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({session_token: session.token, frame_sequence: sequence, metrics: {browser_php_roundtrip_ms: browserRoundtrip, comparative_round_total_ms: roundTotal}})});
+            const executeA = async metricsForRound => {
+                const totalStarted = performance.now();
+                let face;
+                try { face = await faceApiEmbedding(); } catch (_) { face = {embedding: null, metrics: {faceapi_failure_ms: performance.now() - totalStarted}}; }
+                const body = JSON.stringify({session_token: session.token, frame_sequence: sequence, missed_intervals: missed, faceapi_embedding: face.embedding, faceapi_metrics: face.metrics, monitoring_metrics: metricsForRound});
+                const communicationStarted = performance.now();
+                sequenceSubmissionStarted = true;
+                const data = await request('session-frame-a', {method: 'POST', headers: {'Content-Type': 'application/json'}, body});
+                const clientMetrics = {http_roundtrip_ms: performance.now() - communicationStarted, end_to_end_ms: performance.now() - totalStarted, request_payload_bytes: payloadBytes(body)};
+                Object.assign(data.metrics, clientMetrics);
+                try { await request('session-finalize', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({session_token: session.token, frame_sequence: sequence, architecture: 'A', metrics: clientMetrics})}); } catch (_) {}
+                return data;
+            };
+            const executeB = async metricsForRound => {
+                const totalStarted = performance.now();
+                const encoded = encodeFrame();
+                const body = JSON.stringify({session_token: session.token, frame_sequence: sequence, missed_intervals: missed, image: encoded.image, monitoring_metrics: metricsForRound});
+                const communicationStarted = performance.now();
+                sequenceSubmissionStarted = true;
+                const data = await request('session-frame-b', {method: 'POST', headers: {'Content-Type': 'application/json'}, body});
+                const clientMetrics = {image_encode_ms: encoded.imageEncodeMs, http_roundtrip_ms: performance.now() - communicationStarted, end_to_end_ms: performance.now() - totalStarted, request_payload_bytes: payloadBytes(body)};
+                Object.assign(data.metrics, clientMetrics);
+                try { await request('session-finalize', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({session_token: session.token, frame_sequence: sequence, architecture: 'B', metrics: clientMetrics})}); } catch (_) {}
+                return data;
+            };
+            const order = sequence % 2 === 1 ? ['A', 'B'] : ['B', 'A'];
+            const results = [];
+            for (const architecture of order) {
+                try {
+                    const item = architecture === 'A' ? await executeA(results.length === 0 ? monitoringMetrics : {}) : await executeB(results.length === 0 ? monitoringMetrics : {});
+                    results.push(item); committed = true;
+                } catch (error) {
+                    results.push({architecture, status: 'error', id: null, name: null, distance_squared: null, compared_embeddings: 0, error: 'service_failure', metrics: {}});
+                }
+            }
+            results.sort((left, right) => left.architecture.localeCompare(right.architecture));
+            renderContinuous(results, {});
+            recordCurrentSessionFrame(sequence, results);
+            if (activeEvaluationIdentityId) { if (results.length === 2 && results.every(item => item.status !== 'error')) supervisedPaired++; for (const item of results) { const stats = supervised[item.architecture]; if (item.status === 'error') stats.technical++; else if (item.status === 'recognized') item.id === activeEvaluationIdentityId ? stats.correct++ : stats.incorrect++; else stats.notRecognized++; } renderSupervised(); }
             sessionStatus.textContent = `Quadro ${sequence} concluído sem sobreposição.`;
         } catch (error) {
             sessionStatus.textContent = `Falha no quadro ${sequence}: ${error.message}. A próxima rodada será tentada.`;
