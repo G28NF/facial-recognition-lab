@@ -9,14 +9,14 @@ $ready = $infrastructure['database'] === 'disponivel';
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Reconhecimento Facial V2</title>
+    <title>Reconhecimento Facial</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
     <link rel="stylesheet" href="assets/css/app.css">
 </head>
 <body data-authenticated="<?= $authenticated ? 'true' : 'false' ?>">
 <main class="container">
     <header class="page-header">
-        <div><p class="eyebrow">Reconhecimento Facial V2</p><h1>Arquiteturas A e B</h1></div>
+        <div><p class="eyebrow">Reconhecimento Facial</p><h1>Arquiteturas A e B</h1></div>
         <span class="privacy">Imagens não são armazenadas</span>
     </header>
 
