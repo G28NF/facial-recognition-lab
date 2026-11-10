@@ -346,7 +346,6 @@
         ['Overhead PHP–Python', data.metrics?.php_python_overhead_ms],
         ['Codificação JPEG', data.metrics?.image_encode_ms],
         ['Comunicação HTTP', data.metrics?.http_roundtrip_ms],
-        ['Tempo completo de processamento', data.metrics?.end_to_end_ms],
         ['Bytes enviados', data.metrics?.request_payload_bytes, 'integer']
     ];
 

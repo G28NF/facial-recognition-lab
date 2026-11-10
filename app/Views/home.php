@@ -186,7 +186,7 @@ $ready = $infrastructure['database'] === 'disponivel';
         <section class="tab-pane fade" id="metrics-pane" role="tabpanel" aria-labelledby="metrics-tab" tabindex="0">
             <section class="panel dashboard-panel" aria-labelledby="dashboard-title">
                 <div class="section-heading">
-                    <div><p class="eyebrow">Métricas da sessão</p><h2 id="dashboard-title">Desempenho e métricas</h2><p id="dashboardMethodology">Carregando metodologia...</p></div>
+                    <div><p class="eyebrow">Métricas da sessão</p><h2 id="dashboard-title">Desempenho e métricas</h2></div>
                     <div class="dashboard-actions">
                         <button id="refreshDashboard" type="button" class="secondary">Atualizar</button>
                         <a id="exportMetrics" class="button-link" href="?route=api/metrics-export">CSV da sessão</a>
@@ -195,10 +195,9 @@ $ready = $infrastructure['database'] === 'disponivel';
                     </div>
                 </div>
                 <p id="dashboardStatus" class="status" aria-live="polite"></p>
-                <div class="table-wrap"><table><thead><tr><th>Escopo</th><th>Arquitetura</th><th>Válidas</th><th>Execuções</th><th>Falhas</th><th>Média</th><th>Mediana</th><th>P95</th><th>Mínimo</th><th>Máximo</th><th>Desvio populacional</th></tr></thead><tbody id="statisticsBody"></tbody></table></div>
                 <section class="lifecycle-panel" aria-labelledby="lifecycle-title">
                     <h3 id="lifecycle-title">Inicialização e aquecimento da sessão selecionada</h3>
-                    <p class="method-note">Inicialização não integra o tempo completo de processamento oficial por quadro. Métricas ausentes em sessões históricas permanecem como indisponíveis.</p>
+                    <p class="method-note">Métricas ausentes em sessões históricas permanecem como indisponíveis.</p>
                     <div class="table-wrap"><table><thead><tr><th>Arquitetura</th><th>Fase</th><th>Amostras</th><th>Média</th><th>Mediana</th><th>P95</th><th>Máximo</th></tr></thead><tbody id="lifecycleBody"></tbody></table></div>
                 </section>
                 <section class="precision-panel" aria-labelledby="precision-title">
@@ -214,12 +213,7 @@ $ready = $infrastructure['database'] === 'disponivel';
                     <p id="pairedPrecision" class="method-note"></p>
                     <details class="precision-audit"><summary>Resultados individuais recentes da avaliação</summary><div class="table-wrap"><table><thead><tr><th>Probe</th><th>Arquitetura</th><th>Esperada</th><th>Prevista</th><th>Resultado</th><th>Distância²</th><th>Separação dos candidatos</th><th>Tempo 1:N</th><th>Falha</th></tr></thead><tbody id="precisionResultsBody"></tbody></table></div></details>
                 </section>
-                <div class="chart-grid">
-                    <article><h3>Evolução por quadro pareado</h3><canvas id="latencyChart" width="700" height="280"></canvas></article>
-                    <article><h3>Etapas médias</h3><canvas id="stagesChart" width="700" height="280"></canvas></article>
-                </div>
-                <h3>Comparação do mesmo quadro</h3>
-                <div class="table-wrap"><table><thead><tr><th>Sessão</th><th>Quadro</th><th>Data</th><th>Resultado A</th><th>Separação A</th><th>Total A</th><th>Resultado B</th><th>Separação B</th><th>Total B</th><th>Diferença B−A</th><th>Integridade</th></tr></thead><tbody id="pairedFramesBody"></tbody></table></div>
+                <div class="chart-grid"><article><h3>Etapas médias</h3><canvas id="stagesChart" width="700" height="280"></canvas></article></div>
                 <div class="section-heading history-heading"><h3>Histórico de sessões</h3><div class="pagination"><button id="previousSessions" type="button" class="secondary">Anterior</button><span id="sessionsPage">Página 1</span><button id="nextSessions" type="button" class="secondary">Próxima</button></div></div>
                 <div class="table-wrap"><table><thead><tr><th>Início</th><th>Estado</th><th>Arquiteturas</th><th>Intervalo</th><th>Quadros</th><th>Perdidos</th><th>Eventos</th><th>Falhas</th><th>Ações</th></tr></thead><tbody id="sessionsBody"></tbody></table></div>
             </section>
