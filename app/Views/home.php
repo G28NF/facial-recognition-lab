@@ -23,7 +23,7 @@ $ready = $infrastructure['database'] === 'disponivel';
     <?php if (!$authenticated): ?>
     <section class="panel login-panel" aria-labelledby="login-title">
         <h2 id="login-title">Acesso local</h2>
-        <p>Informe a chave configurada em <code>RFV2_ACCESS_KEY</code>.</p>
+        <p>Informe a chave de acesso configurada para o sistema.</p>
         <form id="loginForm">
             <label for="accessKey">Chave de acesso</label>
             <input id="accessKey" type="password" autocomplete="current-password" required>
