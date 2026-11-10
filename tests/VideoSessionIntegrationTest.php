@@ -83,6 +83,14 @@ try {
     $repository->recordArchitectureResult($individualToken, 'B', 1, 0, $individualB, [], ['A' => .36, 'B' => 1.3225]);
     $repository->finalizeRound($individualToken, 1, ['http_roundtrip_ms' => 30.0, 'end_to_end_ms' => 40.0, 'request_payload_bytes' => 512.0], 'A');
     $repository->finalizeRound($individualToken, 1, ['http_roundtrip_ms' => 50.0, 'end_to_end_ms' => 60.0, 'request_payload_bytes' => 4096.0], 'B');
+    $repository->finalizeRound($individualToken, 1, ['http_roundtrip_ms' => 30.0, 'end_to_end_ms' => 40.0, 'request_payload_bytes' => 512.0], 'A');
+    $pdo->exec("SET SESSION sql_mode = 'STRICT_ALL_TABLES'");
+    try {
+        $repository->finalizeRound($individualToken, 1, ['http_roundtrip_ms' => 999.0, 'end_to_end_ms' => PHP_FLOAT_MAX], 'B');
+        throw new RuntimeException('Falha de persistencia esperada nao ocorreu.');
+    } catch (PDOException) {
+        // O primeiro upsert da mesma transacao tambem deve ser desfeito.
+    }
     $individualGroup = hex2bin($individualToken);
     if (!is_string($individualGroup)) throw new RuntimeException('Token independente invalido.');
     $individualEvents = $pdo->prepare('SELECT COUNT(*) FROM recognition_events re INNER JOIN video_sessions vs ON vs.id=re.video_session_id WHERE vs.session_group_id=:group');
@@ -91,10 +99,16 @@ try {
     $individualMetrics = $pdo->prepare('SELECT COUNT(*) FROM execution_metrics em INNER JOIN video_sessions vs ON vs.id=em.video_session_id WHERE vs.session_group_id=:group AND em.metric_name IN ("http_roundtrip_ms", "end_to_end_ms", "request_payload_bytes")');
     $individualMetrics->bindValue(':group', $individualGroup, PDO::PARAM_LOB); $individualMetrics->execute();
     if ((int) $individualMetrics->fetchColumn() !== 6) throw new RuntimeException('Metricas individuais A/B nao foram persistidas.');
+    $payloadUnit = $pdo->prepare('SELECT em.metric_value, em.unit FROM execution_metrics em INNER JOIN video_sessions vs ON vs.id=em.video_session_id WHERE vs.session_group_id=:group AND vs.architecture_id="B" AND em.metric_name="request_payload_bytes"');
+    $payloadUnit->bindValue(':group', $individualGroup, PDO::PARAM_LOB); $payloadUnit->execute(); $payload = $payloadUnit->fetch();
+    if (!is_array($payload) || (float) $payload['metric_value'] !== 4096.0 || $payload['unit'] !== 'bytes') throw new RuntimeException('Bytes enviados nao preservaram valor ou unidade.');
     $latencies = $pdo->prepare('SELECT vs.architecture_id, em.metric_value FROM execution_metrics em INNER JOIN video_sessions vs ON vs.id=em.video_session_id WHERE vs.session_group_id=:group AND em.metric_name="end_to_end_ms"');
     $latencies->bindValue(':group', $individualGroup, PDO::PARAM_LOB); $latencies->execute(); $latencyByArchitecture = [];
     foreach ($latencies as $latency) $latencyByArchitecture[$latency['architecture_id']] = (float) $latency['metric_value'];
     if (($latencyByArchitecture['A'] ?? null) !== 40.0 || ($latencyByArchitecture['B'] ?? null) !== 60.0) throw new RuntimeException('Atraso de B contaminou latencias individuais.');
+    $bRoundtrip = $pdo->prepare('SELECT em.metric_value FROM execution_metrics em INNER JOIN video_sessions vs ON vs.id=em.video_session_id WHERE vs.session_group_id=:group AND vs.architecture_id="B" AND em.metric_name="http_roundtrip_ms"');
+    $bRoundtrip->bindValue(':group', $individualGroup, PDO::PARAM_LOB); $bRoundtrip->execute();
+    if ((float) $bRoundtrip->fetchColumn() !== 50.0) throw new RuntimeException('Falha durante finalizacao deixou metricas parcialmente atualizadas.');
     $repository->end($individualToken);
 
     $eventQuery = $pdo->prepare('SELECT COUNT(*) FROM recognition_events re INNER JOIN video_sessions vs ON vs.id = re.video_session_id WHERE vs.session_group_id = :group_id');

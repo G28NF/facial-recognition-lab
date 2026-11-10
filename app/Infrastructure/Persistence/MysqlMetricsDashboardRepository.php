@@ -17,8 +17,9 @@ final class MysqlMetricsDashboardRepository
         'candidate_selection_ms', 'matched_name_query_ms', 'matched_name_decrypt_ms',
         'comparison_overhead_ms', 'comparison_total_ms',
         'image_decode_ms', 'facial_processing_ms', 'php_python_roundtrip_ms',
-        'php_python_overhead_ms', 'image_encode_ms', 'http_roundtrip_ms', 'end_to_end_ms', 'request_payload_bytes',
+        'php_python_overhead_ms', 'image_encode_ms', 'http_roundtrip_ms', 'end_to_end_ms',
     ];
+    private const EXPORT_METRICS = [...self::STAGE_METRICS, 'request_payload_bytes'];
     private const LIFECYCLE_METRICS = ['initialization_ms', 'model_load_ms', 'runtime_ready_ms', 'first_inference_ms', 'warmup_ms'];
 
     public function __construct(private readonly PdoConnection $connection) {}
@@ -260,7 +261,7 @@ final class MysqlMetricsDashboardRepository
     /** @return Generator<int,array<string,mixed>> */
     public function exportRows(?string $sessionToken = null): Generator
     {
-        $metrics = self::STAGE_METRICS;
+        $metrics = self::EXPORT_METRICS;
         $metricColumns = implode(",\n", array_map(static fn(string $name): string => "MAX(CASE WHEN em.metric_name = '{$name}' THEN em.metric_value END) {$name}", $metrics));
         $sql = "SELECT 'recognition' record_type, LOWER(HEX(vs.session_group_id)) session_token, vs.id video_session_id,
             vs.status session_status, vs.interval_ms, vs.started_at session_started_at, vs.ended_at session_ended_at,

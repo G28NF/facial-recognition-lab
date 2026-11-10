@@ -56,10 +56,10 @@ final class ContinuousRecognitionService
     }
 
     /** @param array<mixed>|null $embedding @param array<string,int|float> $metrics @param array<string,int|float> $monitoringMetrics */
-    public function processArchitectureA(string $token, int $frameSequence, int $missedIntervals, ?array $embedding, array $metrics, array $monitoringMetrics): array
+    public function processArchitectureA(string $token, int $frameSequence, int $missedIntervals, ?array $embedding, ?string $faceapiFailure, array $metrics, array $monitoringMetrics): array
     {
         $started = hrtime(true);
-        if ($embedding === null) $result = $this->failure('A', new \RuntimeException('Falha na extracao Face API.js.', 422), $started, $metrics);
+        if ($embedding === null) $result = $this->frontendFaceApiFailure($faceapiFailure, $started, $metrics);
         else {
             try {
                 $result = $this->recognition->architectureA($embedding, $metrics);
@@ -91,12 +91,12 @@ final class ContinuousRecognitionService
     }
 
     /** @param array<mixed>|null $faceapiEmbedding @param array<string,int|float> $faceapiMetrics @param array<string,int|float> $monitoringMetrics */
-    public function processRound(string $token, int $frameSequence, int $missedIntervals, string $image, ?array $faceapiEmbedding, array $faceapiMetrics, array $monitoringMetrics): array
+    public function processRound(string $token, int $frameSequence, int $missedIntervals, string $image, ?array $faceapiEmbedding, ?string $faceapiFailure, array $faceapiMetrics, array $monitoringMetrics): array
     {
         $results = [];
         $startedA = hrtime(true);
         if ($faceapiEmbedding === null) {
-            $results['A'] = $this->failure('A', new \RuntimeException('Falha na extracao Face API.js.', 422), $startedA, $faceapiMetrics);
+            $results['A'] = $this->frontendFaceApiFailure($faceapiFailure, $startedA, $faceapiMetrics);
         } else {
             try {
                 $results['A'] = $this->recognition->architectureA($faceapiEmbedding, $faceapiMetrics);
@@ -123,7 +123,13 @@ final class ContinuousRecognitionService
 
     /** @return array<string,mixed> */
     /** @param array<string,int|float> $frontendMetrics */
-    private function failure(string $architecture, Throwable $error, int $started, array $frontendMetrics = []): array
+    private function frontendFaceApiFailure(?string $failure, int $started, array $frontendMetrics): array
+    {
+        $safeFailure = in_array($failure, ['no_face', 'multiple_faces'], true) ? $failure : 'technical_failure';
+        return $this->failure('A', new \RuntimeException('Falha na extracao Face API.js.'), $started, $frontendMetrics, $safeFailure);
+    }
+
+    private function failure(string $architecture, Throwable $error, int $started, array $frontendMetrics = [], ?string $failure = null): array
     {
         $pipelineTotalMs = (hrtime(true) - $started) / 1_000_000 + (float) ($frontendMetrics['faceapi_failure_ms'] ?? 0);
         return [
@@ -140,7 +146,7 @@ final class ContinuousRecognitionService
             'candidate_distance_delta_squared' => null,
             'ambiguity_margin_squared' => null,
             'decision_reason' => 'technical_failure',
-            'error' => $error->getCode() === 422 ? 'facial_input_failure' : 'service_failure',
+            'error' => $failure ?? ($error->getCode() === 422 ? 'facial_input_failure' : 'service_failure'),
             'metrics' => array_merge($frontendMetrics, ['pipeline_total_ms' => round($pipelineTotalMs, 3)]),
         ];
     }

@@ -28,6 +28,23 @@
         return data;
     };
 
+    const metricFinalizer = new globalThis.RFV2MetricFinalizer(payload => {
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 5000);
+        return request('session-finalize', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+            signal: controller.signal
+        }).finally(() => window.clearTimeout(timeout));
+    }, 3);
+    const finalizationNotice = ({pending, exhausted}) => exhausted > 0
+        ? ` Métricas sem finalização após três tentativas: ${exhausted}.`
+        : (pending > 0 ? ` Finalizações de métricas pendentes: ${pending}.` : '');
+    const closedFinalizationNotice = ({pending, exhausted}) => pending + exhausted > 0
+        ? ` ${pending + exhausted} finalização(ões) de métricas não pôde(ram) ser recuperada(s); os resultados biométricos foram preservados.`
+        : '';
+
     if (!authenticated) {
         const form = document.querySelector('#loginForm');
         const loginStatus = document.querySelector('#loginStatus');
@@ -104,6 +121,7 @@
         return {image: canvas.toDataURL('image/jpeg', 0.9), imageEncodeMs: performance.now() - started};
     };
     const payloadBytes = body => new TextEncoder().encode(body).byteLength;
+    const faceApiFailure = (code, message) => Object.assign(new Error(message), {rfv2FailureCode: code});
 
     const faceApiEmbeddingFromCanvas = async (sourceCanvas) => {
         await loadModels();
@@ -111,8 +129,8 @@
         const detectionStarted = performance.now();
         const detections = await faceapi.detectAllFaces(sourceCanvas, new faceapi.TinyFaceDetectorOptions());
         const detectionMs = performance.now() - detectionStarted;
-        if (detections.length === 0) throw new Error('Nenhum rosto foi detectado pela Face API.js.');
-        if (detections.length > 1) throw new Error('Mais de um rosto foi detectado.');
+        if (detections.length === 0) throw faceApiFailure('no_face', 'Nenhum rosto foi detectado pela Face API.js.');
+        if (detections.length > 1) throw faceApiFailure('multiple_faces', 'Mais de um rosto foi detectado.');
         const extractionStarted = performance.now();
         const detectedFaces = await faceapi.extractFaces(sourceCanvas, detections);
         const landmarks = await faceapi.detectFaceLandmarks(detectedFaces[0]);
@@ -488,6 +506,7 @@
 
     const schedulerTick = async () => {
         if (session.state !== 'running') return;
+        await metricFinalizer.retryPending();
         const tickStarted = performance.now();
         const timing = globalThis.RFV2SchedulerPolicy.advance(session.nextDue, tickStarted, session.intervalMs);
         const schedulerDelay = timing.delayMs;
@@ -532,14 +551,17 @@
             const executeA = async metricsForRound => {
                 const totalStarted = performance.now();
                 let face;
-                try { face = await faceApiEmbedding(); } catch (_) { face = {embedding: null, metrics: {faceapi_failure_ms: performance.now() - totalStarted}}; }
-                const body = JSON.stringify({session_token: session.token, frame_sequence: sequence, missed_intervals: missed, faceapi_embedding: face.embedding, faceapi_metrics: face.metrics, monitoring_metrics: metricsForRound});
+                try { face = await faceApiEmbedding(); } catch (error) {
+                    const failure = ['no_face', 'multiple_faces'].includes(error?.rfv2FailureCode) ? error.rfv2FailureCode : 'technical_failure';
+                    face = {embedding: null, failure, metrics: {faceapi_failure_ms: performance.now() - totalStarted}};
+                }
+                const body = JSON.stringify({session_token: session.token, frame_sequence: sequence, missed_intervals: missed, faceapi_embedding: face.embedding, faceapi_failure: face.failure ?? null, faceapi_metrics: face.metrics, monitoring_metrics: metricsForRound});
                 const communicationStarted = performance.now();
                 sequenceSubmissionStarted = true;
                 const data = await request('session-frame-a', {method: 'POST', headers: {'Content-Type': 'application/json'}, body});
                 const clientMetrics = {http_roundtrip_ms: performance.now() - communicationStarted, end_to_end_ms: performance.now() - totalStarted, request_payload_bytes: payloadBytes(body)};
                 Object.assign(data.metrics, clientMetrics);
-                try { await request('session-finalize', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({session_token: session.token, frame_sequence: sequence, architecture: 'A', metrics: clientMetrics})}); } catch (_) {}
+                await metricFinalizer.submit({session_token: session.token, frame_sequence: sequence, architecture: 'A', metrics: clientMetrics});
                 return data;
             };
             const executeB = async metricsForRound => {
@@ -551,7 +573,7 @@
                 const data = await request('session-frame-b', {method: 'POST', headers: {'Content-Type': 'application/json'}, body});
                 const clientMetrics = {image_encode_ms: encoded.imageEncodeMs, http_roundtrip_ms: performance.now() - communicationStarted, end_to_end_ms: performance.now() - totalStarted, request_payload_bytes: payloadBytes(body)};
                 Object.assign(data.metrics, clientMetrics);
-                try { await request('session-finalize', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({session_token: session.token, frame_sequence: sequence, architecture: 'B', metrics: clientMetrics})}); } catch (_) {}
+                await metricFinalizer.submit({session_token: session.token, frame_sequence: sequence, architecture: 'B', metrics: clientMetrics});
                 return data;
             };
             const order = sequence % 2 === 1 ? ['A', 'B'] : ['B', 'A'];
@@ -568,7 +590,7 @@
             renderContinuous(results, {});
             recordCurrentSessionFrame(sequence, results);
             if (activeEvaluationIdentityId) { if (results.length === 2 && results.every(item => item.status !== 'error')) supervisedPaired++; for (const item of results) { const stats = supervised[item.architecture]; if (item.status === 'error') stats.technical++; else if (item.status === 'recognized') item.id === activeEvaluationIdentityId ? stats.correct++ : stats.incorrect++; else stats.notRecognized++; } renderSupervised(); }
-            sessionStatus.textContent = `Quadro ${sequence} concluído sem sobreposição.`;
+            sessionStatus.textContent = `Quadro ${sequence} concluído sem sobreposição.${finalizationNotice(metricFinalizer.summary())}`;
         } catch (error) {
             sessionStatus.textContent = `Falha no quadro ${sequence}: ${error.message}. A próxima rodada será tentada.`;
             if (!committed && !sequenceSubmissionStarted && session.state === 'running') {
@@ -589,6 +611,7 @@
                 B: {initialization_ms: pythonInitializationMs}
             }})});
             session.token = data.session_token;
+            metricFinalizer.reset();
             activeEvaluationIdentityId = evaluationIdentityId;
             resetSupervised();
             session.intervalMs = data.interval_ms;
@@ -651,9 +674,10 @@
         updateControls();
         try {
             if (session.inFlight) await session.inFlight;
+            const finalizationSummary = await metricFinalizer.retryPending();
             await request('session-end', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({session_token: session.token})});
             session.state = 'ended';
-            sessionStatus.textContent = 'Sessão encerrada e persistida.';
+            sessionStatus.textContent = `Sessão encerrada e persistida.${closedFinalizationNotice(finalizationSummary)}`;
             window.dispatchEvent(new CustomEvent('rfv2:metrics-updated'));
         } catch (error) {
             session.state = previousState === 'paused' ? 'paused' : 'error';

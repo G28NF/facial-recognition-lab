@@ -312,6 +312,7 @@ final class ApiController
             $this->nonNegativeInt($input['missed_intervals'] ?? null),
             $input['image'],
             $faceapiEmbedding,
+            isset($input['faceapi_failure']) && is_string($input['faceapi_failure']) ? $input['faceapi_failure'] : null,
             is_array($input['faceapi_metrics'] ?? null) ? $input['faceapi_metrics'] : [],
             is_array($input['monitoring_metrics'] ?? null) ? $input['monitoring_metrics'] : []
         );
@@ -325,7 +326,8 @@ final class ApiController
         if ($embedding !== null && !is_array($embedding)) throw new InvalidArgumentException('Embedding Face API.js invalido.');
         return $this->continuous->processArchitectureA(
             $this->token($input), $this->positiveInt($input['frame_sequence'] ?? null), $this->nonNegativeInt($input['missed_intervals'] ?? null),
-            $embedding, is_array($input['faceapi_metrics'] ?? null) ? $input['faceapi_metrics'] : [],
+            $embedding, isset($input['faceapi_failure']) && is_string($input['faceapi_failure']) ? $input['faceapi_failure'] : null,
+            is_array($input['faceapi_metrics'] ?? null) ? $input['faceapi_metrics'] : [],
             is_array($input['monitoring_metrics'] ?? null) ? $input['monitoring_metrics'] : []
         );
     }

@@ -17,10 +17,17 @@ check(script.includes('image: encoded.image'), 'B nao envia a imagem para sua re
 check(script.includes('http_roundtrip_ms: performance.now() - communicationStarted'), 'Round-trip HTTP individual nao esta instrumentado.');
 check(script.includes('end_to_end_ms: performance.now() - totalStarted'), 'Latencia ponta a ponta individual nao esta instrumentada.');
 check(script.includes('request_payload_bytes: payloadBytes(body)'), 'Bytes enviados nao sao registrados individualmente.');
+check(script.includes("faceApiFailure('no_face'"), 'Ausencia de rosto nao possui classificacao explicita.');
+check(script.includes("faceApiFailure('multiple_faces'"), 'Multiplos rostos nao possuem classificacao explicita.');
+check(script.includes("error?.rfv2FailureCode") && script.includes("'technical_failure'"), 'Falhas tecnicas Face API.js nao sao classificadas separadamente.');
+check(script.includes('faceapi_failure: face.failure ?? null'), 'Classificacao Face API.js nao e enviada ao servidor.');
+check(script.includes('metricFinalizer.submit({session_token: session.token'), 'Falhas de finalizacao ainda podem ser ignoradas silenciosamente.');
+check(!script.includes("try { await request('session-finalize'"), 'session-finalize ainda descarta erros sem controlar pendencias.');
 check(script.includes("sequence % 2 === 1 ? ['A', 'B'] : ['B', 'A']"), 'A ordem A/B nao alterna por rodada.');
 check(script.includes('if (!pythonPipelineWarmed) {'), 'O aquecimento de B ainda depende do aquecimento de A.');
 check(controller.includes("'session-frame-a' => $this->sessionFrameA()"), 'Endpoint A de sessao nao foi registrado.');
 check(controller.includes("'session-frame-b' => $this->sessionFrameB()"), 'Endpoint B de sessao nao foi registrado.');
 check(continuous.includes('processArchitectureA') && continuous.includes('processArchitectureB'), 'Processamento independente de A/B nao foi implementado.');
+check(continuous.includes("['no_face', 'multiple_faces']") && continuous.includes("'technical_failure'"), 'Servico nao preserva classificacao segura da Face API.js.');
 
 console.log('OK - fallback de presenca protegido contra sequencia ja submetida');
