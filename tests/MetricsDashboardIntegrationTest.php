@@ -52,6 +52,7 @@ try {
     }
     $sessions->recordWarmup($token, 1, 0, ['A' => 8.0, 'B' => 9.0], ['presence_detection_ms' => 2.0], 8.0);
     $sessions->recordRound($token, 2, 0, ['A' => $result('recognized', 10), 'B' => $result('recognized', 20)], [], ['A' => .36, 'B' => 1.3225]);
+    $sessions->finalizeRound($token, 2, ['request_payload_bytes' => 512.0], 'A');
     $sessions->recordRound($token, 3, 0, ['A' => $result('unknown', 20), 'B' => $result('error', 30, 'service_failure')], [], ['A' => .36, 'B' => 1.3225]);
     $sessions->recordRound($token, 4, 1, ['A' => $result('inconclusive', 100), 'B' => $result('unknown', 40)], [], ['A' => .36, 'B' => 1.3225]);
     $sessions->end($token);
@@ -114,6 +115,13 @@ try {
     $headers = $dashboard->csvHeaders();
     if (!in_array('recognition', $types, true) || !in_array('session_metric', $types, true) || !in_array('http_roundtrip_ms', $headers, true) || !in_array('end_to_end_ms', $headers, true) || !in_array('request_payload_bytes', $headers, true) || str_contains($serializedRows, '"embedding":') || str_contains($serializedRows, '"image":') || str_contains($serializedRows, 'data:image')) {
         throw new RuntimeException('Exportacao nao separou registros ou incluiu dado biometrico.');
+    }
+    if (isset($data['stages']['A']['request_payload_bytes']) || isset($data['stages']['B']['request_payload_bytes'])) {
+        throw new RuntimeException('Bytes enviados foram incluidos como etapa temporal.');
+    }
+    $payloadExported = array_values(array_filter($rows, static fn(array $row): bool => $row['record_type'] === 'recognition' && (float) ($row['request_payload_bytes'] ?? 0) === 512.0));
+    if (count($payloadExported) !== 1) {
+        throw new RuntimeException('Bytes enviados deixaram de estar disponiveis na exportacao.');
     }
 
     $removed = $dashboard->deleteSession($token);

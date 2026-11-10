@@ -17,6 +17,11 @@ final class MysqlVideoSessionRepository
         $group = random_bytes(16);
         $token = bin2hex($group);
         $this->connection->transaction(function (PDO $pdo) use ($group, $intervalMs, $initializationMetrics, $expectedIdentityId): void {
+            $pdo->exec('UPDATE webcam_evaluation_segments segment
+                INNER JOIN video_sessions session ON session.session_group_id = segment.session_group_id
+                SET segment.ended_at = UTC_TIMESTAMP(3)
+                WHERE segment.ended_at IS NULL AND session.status IN ("running", "paused")
+                    AND JSON_UNQUOTE(JSON_EXTRACT(session.metadata, "$.mode")) = "continuous_comparative"');
             $pdo->exec('UPDATE video_sessions SET status = "interrupted", ended_at = UTC_TIMESTAMP(3), paused_at = NULL
                 WHERE status IN ("running", "paused") AND JSON_UNQUOTE(JSON_EXTRACT(metadata, "$.mode")) = "continuous_comparative"');
             $insert = $pdo->prepare('INSERT INTO video_sessions
@@ -70,15 +75,19 @@ final class MysqlVideoSessionRepository
     public function end(string $token): void
     {
         $group = $this->groupBytes($token);
-        $statement = $this->connection->pdo()->prepare('UPDATE video_sessions SET
-            total_paused_ms = total_paused_ms + IF(paused_at IS NULL, 0, ROUND(TIMESTAMPDIFF(MICROSECOND, paused_at, UTC_TIMESTAMP(3)) / 1000)),
-            paused_at = NULL, ended_at = UTC_TIMESTAMP(3), status = "ended"
-            WHERE session_group_id = :session_group_id AND status IN ("running", "paused")');
-        $statement->bindValue(':session_group_id', $group, PDO::PARAM_LOB);
-        $statement->execute();
-        if ($statement->rowCount() !== 2) {
-            throw new DomainException('Sessao nao pode ser encerrada neste estado.', 409);
-        }
+        $this->connection->transaction(function (PDO $pdo) use ($group): void {
+            $statement = $pdo->prepare('UPDATE video_sessions SET
+                total_paused_ms = total_paused_ms + IF(paused_at IS NULL, 0, ROUND(TIMESTAMPDIFF(MICROSECOND, paused_at, UTC_TIMESTAMP(3)) / 1000)),
+                paused_at = NULL, ended_at = UTC_TIMESTAMP(3), status = "ended"
+                WHERE session_group_id = :session_group_id AND status IN ("running", "paused")');
+            $statement->bindValue(':session_group_id', $group, PDO::PARAM_LOB);
+            $statement->execute();
+            if ($statement->rowCount() !== 2) throw new DomainException('Sessao nao pode ser encerrada neste estado.', 409);
+            $segments = $pdo->prepare('UPDATE webcam_evaluation_segments SET ended_at = UTC_TIMESTAMP(3)
+                WHERE session_group_id = :session_group_id AND ended_at IS NULL');
+            $segments->bindValue(':session_group_id', $group, PDO::PARAM_LOB);
+            $segments->execute();
+        });
     }
 
     /** @param array<string,int|float> $metrics */
@@ -193,25 +202,26 @@ final class MysqlVideoSessionRepository
     /** @param array<string,int|float> $metrics */
     public function finalizeRound(string $token, int $frameSequence, array $metrics, ?string $architecture = null): void
     {
-        $pdo = $this->connection->pdo();
-        $group = $this->groupBytes($token);
-        if ($architecture !== null && !in_array($architecture, ['A', 'B'], true)) throw new DomainException('Arquitetura invalida.', 422);
-        $events = $pdo->prepare('SELECT re.id, re.video_session_id FROM recognition_events re
-            INNER JOIN video_sessions vs ON vs.id = re.video_session_id
-            WHERE vs.session_group_id = :session_group_id AND re.frame_sequence = :frame_sequence'.($architecture === null ? '' : ' AND re.architecture_id = :architecture'));
-        $events->bindValue(':session_group_id', $group, PDO::PARAM_LOB);
-        $events->bindValue(':frame_sequence', $frameSequence, PDO::PARAM_INT);
-        if ($architecture !== null) $events->bindValue(':architecture', $architecture);
-        $events->execute();
-        $rows = $events->fetchAll();
-        if (count($rows) !== ($architecture === null ? 2 : 1)) {
-            throw new DomainException('Rodada comparativa nao encontrada.', 404);
-        }
-        foreach ($rows as $row) {
-            foreach ($this->sanitizeMetrics($metrics) as $name => $value) {
-                $this->insertEventMetric($pdo, (int) $row['id'], (int) $row['video_session_id'], $name, $value);
+        $this->connection->transaction(function (PDO $pdo) use ($token, $frameSequence, $metrics, $architecture): void {
+            $group = $this->groupBytes($token);
+            if ($architecture !== null && !in_array($architecture, ['A', 'B'], true)) throw new DomainException('Arquitetura invalida.', 422);
+            $events = $pdo->prepare('SELECT re.id, re.video_session_id FROM recognition_events re
+                INNER JOIN video_sessions vs ON vs.id = re.video_session_id
+                WHERE vs.session_group_id = :session_group_id AND re.frame_sequence = :frame_sequence'.($architecture === null ? '' : ' AND re.architecture_id = :architecture').' FOR UPDATE');
+            $events->bindValue(':session_group_id', $group, PDO::PARAM_LOB);
+            $events->bindValue(':frame_sequence', $frameSequence, PDO::PARAM_INT);
+            if ($architecture !== null) $events->bindValue(':architecture', $architecture);
+            $events->execute();
+            $rows = $events->fetchAll();
+            if (count($rows) !== ($architecture === null ? 2 : 1)) {
+                throw new DomainException('Rodada comparativa nao encontrada.', 404);
             }
-        }
+            foreach ($rows as $row) {
+                foreach ($this->sanitizeMetrics($metrics) as $name => $value) {
+                    $this->insertEventMetric($pdo, (int) $row['id'], (int) $row['video_session_id'], $name, $value);
+                }
+            }
+        });
     }
 
     /** @return array{status:string,interval_ms:int,missed_intervals:int,last_frame_sequence:int} */
@@ -362,8 +372,8 @@ final class MysqlVideoSessionRepository
     {
         $statement = $pdo->prepare('INSERT INTO execution_metrics
             (recognition_event_id, video_session_id, metric_name, metric_value, unit, recorded_at)
-            VALUES (:event_id, :session_id, :metric_name, :metric_value, "ms", UTC_TIMESTAMP(3))
-            ON DUPLICATE KEY UPDATE metric_value = VALUES(metric_value), recorded_at = VALUES(recorded_at)');
-        $statement->execute(['event_id' => $eventId, 'session_id' => $sessionId, 'metric_name' => $name, 'metric_value' => $value]);
+            VALUES (:event_id, :session_id, :metric_name, :metric_value, :unit, UTC_TIMESTAMP(3))
+            ON DUPLICATE KEY UPDATE metric_value = VALUES(metric_value), unit = VALUES(unit), recorded_at = VALUES(recorded_at)');
+        $statement->execute(['event_id' => $eventId, 'session_id' => $sessionId, 'metric_name' => $name, 'metric_value' => $value, 'unit' => $name === 'request_payload_bytes' ? 'bytes' : 'ms']);
     }
 }
