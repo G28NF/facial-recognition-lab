@@ -1,4 +1,4 @@
-# Reconhecimento Facial V2
+# Reconhecimento Facial
 
 ## Descrição do projeto
 

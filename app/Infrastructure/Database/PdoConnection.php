@@ -40,7 +40,7 @@ final class PdoConnection
                 PDO::ATTR_STRINGIFY_FETCHES => false,
             ]);
         } catch (PDOException $error) {
-            throw new RuntimeException('Banco da V2 indisponivel.', 0, $error);
+            throw new RuntimeException('Banco indisponivel.', 0, $error);
         }
         return $this->pdo;
     }

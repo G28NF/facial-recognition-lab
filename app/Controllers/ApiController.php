@@ -511,7 +511,7 @@ final class ApiController
             throw new InvalidArgumentException('Sessao para exportacao invalida.');
         }
         $headers = $this->dashboard->csvHeaders();
-        $filename = 'rfv2-metricas-'.($token === null ? 'todas' : substr($token, 0, 12)).'-'.gmdate('Ymd-His').'.csv';
+        $filename = 'reconhecimento-facial-metricas-'.($token === null ? 'todas' : substr($token, 0, 12)).'-'.gmdate('Ymd-His').'.csv';
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="'.$filename.'"');
         header('X-Content-Type-Options: nosniff');
