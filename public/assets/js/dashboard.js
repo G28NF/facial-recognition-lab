@@ -30,23 +30,6 @@
         body.append(row);
     };
 
-    const renderStatistics = data => {
-        const body = document.querySelector('#statisticsBody');
-        body.replaceChildren();
-        for (const [scope, statistics] of [['Geral', data.overall], ['Sessão', data.session_statistics]]) {
-            for (const architecture of ['A', 'B']) {
-                const item = statistics[architecture];
-                const row = document.createElement('tr');
-                for (const value of [scope, architecture, item.count, item.executions, item.failures, format(item.mean), format(item.median), format(item.p95), format(item.minimum), format(item.maximum), format(item.population_stddev)]) {
-                    const cell = document.createElement('td');
-                    cell.textContent = value;
-                    row.append(cell);
-                }
-                body.append(row);
-            }
-        }
-    };
-
     const renderLifecycle = lifecycle => {
         const body = document.querySelector('#lifecycleBody');
         body.replaceChildren();
@@ -63,7 +46,7 @@
                 body.append(row); rows++;
             }
         }
-        if (!rows) emptyRow(body, 7, 'Não há métricas de inicialização para esta sessão. Sessões históricas podem registrar apenas o tempo completo de processamento por quadro.');
+        if (!rows) emptyRow(body, 7, 'Não há métricas de inicialização para esta sessão.');
     };
 
     const percent = value => value === null || value === undefined ? '—' : `${Number(value).toFixed(2)}%`;
@@ -129,36 +112,6 @@
         return values.length ? values.join(' · ') : 'Candidatos indisponíveis';
     };
 
-    const renderFrames = frames => {
-        const body = document.querySelector('#pairedFramesBody');
-        body.replaceChildren();
-        for (const frame of frames) {
-            const row = document.createElement('tr');
-            const values = [
-                shortToken(frame.session_token), frame.frame_sequence, frame.occurred_at ? new Date(`${frame.occurred_at}Z`).toLocaleString('pt-BR') : '—',
-                (frame.failure_a && frame.failure_a !== 'null') ? frame.failure_a : (frame.result_a || 'ausente'), ambiguitySummary({
-                    recognition_result: frame.decision_reason_a || frame.result_a, best_candidate_identity_id: frame.best_candidate_identity_a, best_candidate_distance_squared: frame.best_candidate_distance_a,
-                    second_candidate_identity_id: frame.second_candidate_identity_a, second_candidate_distance_squared: frame.second_candidate_distance_a,
-                    candidate_distance_delta_squared: frame.candidate_distance_delta_a, ambiguity_margin_squared: frame.ambiguity_margin_a
-                }), format(frame.total_a_ms, ' ms'),
-                (frame.failure_b && frame.failure_b !== 'null') ? frame.failure_b : (frame.result_b || 'ausente'), ambiguitySummary({
-                    recognition_result: frame.decision_reason_b || frame.result_b, best_candidate_identity_id: frame.best_candidate_identity_b, best_candidate_distance_squared: frame.best_candidate_distance_b,
-                    second_candidate_identity_id: frame.second_candidate_identity_b, second_candidate_distance_squared: frame.second_candidate_distance_b,
-                    candidate_distance_delta_squared: frame.candidate_distance_delta_b, ambiguity_margin_squared: frame.ambiguity_margin_b
-                }), format(frame.total_b_ms, ' ms'), format(frame.difference_ms, ' ms'),
-                frame.complete ? 'A/B completo' : 'Incompleto'
-            ];
-            values.forEach((value, index) => {
-                const cell = document.createElement('td');
-                cell.textContent = value;
-                if (!frame.complete && index === 8) cell.className = 'incomplete';
-                row.append(cell);
-            });
-            body.append(row);
-        }
-        if (!frames.length) emptyRow(body, 11, 'Nenhum quadro oficial nesta sessão.');
-    };
-
     const renderSessions = data => {
         const body = document.querySelector('#sessionsBody');
         body.replaceChildren();
@@ -217,43 +170,6 @@
         context.fillText('Sem medições válidas', width / 2, height / 2);
     };
 
-    const drawLatencyChart = frames => {
-        const {context, width, height} = prepareCanvas(document.querySelector('#latencyChart'));
-        const chronological = [...frames].reverse();
-        const values = chronological.flatMap(frame => [frame.total_a_ms, frame.total_b_ms]).filter(value => value !== null && value !== undefined);
-        if (!values.length) { noChartData(context, width, height); return; }
-        const padding = {left: 48, right: 18, top: 25, bottom: 35};
-        const maximum = Math.max(...values);
-        const scaleMax = maximum > 0 ? maximum * 1.1 : 1;
-        context.strokeStyle = '#30435f';
-        context.beginPath();
-        context.moveTo(padding.left, padding.top);
-        context.lineTo(padding.left, height - padding.bottom);
-        context.lineTo(width - padding.right, height - padding.bottom);
-        context.stroke();
-        for (const [key, color, label] of [['total_a_ms', '#4fa3ff', 'A'], ['total_b_ms', '#5ee0a3', 'B']]) {
-            context.strokeStyle = color;
-            context.lineWidth = 2;
-            context.beginPath();
-            let started = false;
-            chronological.forEach((frame, index) => {
-                const value = frame[key];
-                if (value === null || value === undefined) { started = false; return; }
-                const x = padding.left + (chronological.length === 1 ? 0 : index / (chronological.length - 1)) * (width - padding.left - padding.right);
-                const y = height - padding.bottom - Number(value) / scaleMax * (height - padding.top - padding.bottom);
-                if (!started) context.moveTo(x, y); else context.lineTo(x, y);
-                started = true;
-            });
-            context.stroke();
-            context.fillStyle = color;
-            context.fillText(label, width - padding.right - (label === 'A' ? 45 : 20), 16);
-        }
-        context.fillStyle = '#8fa4bd';
-        context.textAlign = 'right';
-        context.fillText(`${scaleMax.toFixed(1)} ms`, padding.left - 5, padding.top + 5);
-        context.fillText('0', padding.left - 5, height - padding.bottom + 5);
-    };
-
     const drawStagesChart = stages => {
         const {context, width, height} = prepareCanvas(document.querySelector('#stagesChart'));
         const stagesToPlot = [
@@ -266,7 +182,6 @@
             {name: 'comparison_total_ms', label: 'Comparação total', shortLabel: 'Comp. total'},
             {name: 'php_python_roundtrip_ms', label: 'PHP–Python', shortLabel: 'PHP–Py'},
             {name: 'http_roundtrip_ms', label: 'HTTP individual', shortLabel: 'HTTP'},
-            {name: 'end_to_end_ms', label: 'Tempo completo de processamento', shortLabel: 'Tempo completo de processamento'},
         ];
         const values = stagesToPlot.flatMap(({name}) => ['A', 'B'].map(architecture => stages[architecture]?.[name]?.mean).filter(value => value !== undefined));
         if (!values.length) { noChartData(context, width, height); return; }
@@ -314,17 +229,12 @@
             if (selectedSession) parameters.set('session_token', selectedSession);
             const data = await api(`dashboard&${parameters}`);
             selectedSession = data.selected_session;
-            const method = data.methodology;
-            document.querySelector('#dashboardMethodology').textContent = `Tempo completo de processamento: ${method.latency_metric}; resultados válidos: ${method.included_results.join(', ')}; P95 nearest-rank; desvio populacional.`;
             document.querySelector('#exportMetrics').href = selectedSession ? `?route=api/metrics-export&session_token=${encodeURIComponent(selectedSession)}` : '?route=api/metrics-export';
-            renderStatistics(data);
             renderLifecycle(data.lifecycle);
             renderPrecision(data.precision);
-            renderFrames(data.paired_frames);
             renderSessions(data);
-            drawLatencyChart(data.paired_frames);
             drawStagesChart(data.stages);
-            dashboardStatus.textContent = method.precision_note;
+            dashboardStatus.textContent = data.methodology.precision_note;
         } catch (error) {
             dashboardStatus.textContent = error.message;
         }
