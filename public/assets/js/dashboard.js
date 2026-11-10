@@ -63,7 +63,7 @@
                 body.append(row); rows++;
             }
         }
-        if (!rows) emptyRow(body, 7, 'Não há métricas de inicialização para esta sessão. Sessões históricas podem registrar apenas a latência por quadro.');
+        if (!rows) emptyRow(body, 7, 'Não há métricas de inicialização para esta sessão. Sessões históricas podem registrar apenas o tempo completo de processamento por quadro.');
     };
 
     const percent = value => value === null || value === undefined ? '—' : `${Number(value).toFixed(2)}%`;
@@ -265,6 +265,8 @@
             {name: 'comparison_ms', label: 'Comparação', shortLabel: 'Comparar'},
             {name: 'comparison_total_ms', label: 'Comparação total', shortLabel: 'Comp. total'},
             {name: 'php_python_roundtrip_ms', label: 'PHP–Python', shortLabel: 'PHP–Py'},
+            {name: 'http_roundtrip_ms', label: 'HTTP individual', shortLabel: 'HTTP'},
+            {name: 'end_to_end_ms', label: 'Tempo completo de processamento', shortLabel: 'Tempo completo de processamento'},
         ];
         const values = stagesToPlot.flatMap(({name}) => ['A', 'B'].map(architecture => stages[architecture]?.[name]?.mean).filter(value => value !== undefined));
         if (!values.length) { noChartData(context, width, height); return; }
@@ -313,7 +315,7 @@
             const data = await api(`dashboard&${parameters}`);
             selectedSession = data.selected_session;
             const method = data.methodology;
-            document.querySelector('#dashboardMethodology').textContent = `Latência: ${method.latency_metric}; resultados válidos: ${method.included_results.join(', ')}; P95 nearest-rank; desvio populacional.`;
+            document.querySelector('#dashboardMethodology').textContent = `Tempo completo de processamento: ${method.latency_metric}; resultados válidos: ${method.included_results.join(', ')}; P95 nearest-rank; desvio populacional.`;
             document.querySelector('#exportMetrics').href = selectedSession ? `?route=api/metrics-export&session_token=${encodeURIComponent(selectedSession)}` : '?route=api/metrics-export';
             renderStatistics(data);
             renderLifecycle(data.lifecycle);

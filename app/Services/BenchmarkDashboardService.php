@@ -22,12 +22,12 @@ final class BenchmarkDashboardService
         }
         return [
             'methodology' => [
-                'latency_metric' => 'pipeline_total_ms',
+                'latency_metric' => 'end_to_end_ms',
                 'included_results' => ['recognized', 'unknown', 'inconclusive'],
                 'excluded_results' => ['error'],
                 'percentile' => 'nearest-rank P95',
                 'standard_deviation' => 'population',
-                'note' => 'Inicializacao, aquecimento, presenca e round-trip comparativo permanecem separados e nao sao somados ao pipeline_total_ms.',
+                'note' => 'pipeline_total_ms mede processamento interno; http_roundtrip_ms e end_to_end_ms sao individuais por arquitetura. Metricas comparativas historicas nao entram no painel.',
                 'precision_note' => 'Eventos periodicos medem desempenho operacional; nao sao amostras independentes de precisao.',
             ],
             'overall' => $this->statisticsFor(null),
@@ -73,7 +73,7 @@ final class BenchmarkDashboardService
             'candidate_selection_ms', 'matched_name_query_ms', 'matched_name_decrypt_ms',
             'comparison_overhead_ms', 'comparison_total_ms',
             'facial_processing_ms', 'php_python_roundtrip_ms', 'php_python_overhead_ms',
-            'browser_php_roundtrip_ms', 'comparative_round_total_ms',
+            'image_encode_ms', 'http_roundtrip_ms', 'end_to_end_ms', 'request_payload_bytes',
         ];
     }
 

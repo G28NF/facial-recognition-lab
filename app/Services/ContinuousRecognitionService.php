@@ -49,14 +49,39 @@ final class ContinuousRecognitionService
     }
 
     /** @param array<string,int|float> $metrics */
-    public function finalize(string $token, int $frameSequence, array $metrics): array
+    public function finalize(string $token, int $frameSequence, array $metrics, ?string $architecture = null): array
     {
-        $this->sessions->finalizeRound($token, $frameSequence, $metrics);
+        $this->sessions->finalizeRound($token, $frameSequence, $metrics, $architecture);
         return ['status' => 'finalized'];
     }
 
+    /** @param array<mixed>|null $embedding @param array<string,int|float> $metrics @param array<string,int|float> $monitoringMetrics */
+    public function processArchitectureA(string $token, int $frameSequence, int $missedIntervals, ?array $embedding, array $metrics, array $monitoringMetrics): array
+    {
+        $started = hrtime(true);
+        if ($embedding === null) $result = $this->failure('A', new \RuntimeException('Falha na extracao Face API.js.', 422), $started, $metrics);
+        else {
+            try {
+                $result = $this->recognition->architectureA($embedding, $metrics);
+                $result['metrics']['pipeline_total_ms'] = round((hrtime(true) - $started) / 1_000_000 + (float) ($metrics['detection_ms'] ?? 0) + (float) ($metrics['extraction_ms'] ?? 0), 3);
+            } catch (Throwable $error) { $result = $this->failure('A', $error, $started); }
+        }
+        $this->sessions->recordArchitectureResult($token, 'A', $frameSequence, $missedIntervals, $result, $monitoringMetrics, $this->thresholds());
+        return $result;
+    }
+
     /** @param array<string,int|float> $monitoringMetrics */
-    public function warmup(string $token, string $image, float $faceapiWarmupMs, ?float $faceapiFirstInferenceMs, int $frameSequence, int $missedIntervals, array $monitoringMetrics): array
+    public function processArchitectureB(string $token, int $frameSequence, int $missedIntervals, string $image, array $monitoringMetrics): array
+    {
+        $started = hrtime(true);
+        try { $result = $this->recognition->architectureB($image); $result['metrics']['pipeline_total_ms'] = round((hrtime(true) - $started) / 1_000_000, 3); }
+        catch (Throwable $error) { $result = $this->failure('B', $error, $started); }
+        $this->sessions->recordArchitectureResult($token, 'B', $frameSequence, $missedIntervals, $result, $monitoringMetrics, $this->thresholds());
+        return $result;
+    }
+
+    /** @param array<string,int|float> $monitoringMetrics */
+    public function warmup(string $token, string $image, ?float $faceapiWarmupMs, ?float $faceapiFirstInferenceMs, int $frameSequence, int $missedIntervals, array $monitoringMetrics): array
     {
         $started = hrtime(true);
         $this->python->extract($image);
@@ -65,16 +90,20 @@ final class ContinuousRecognitionService
         return ['status' => 'warmed', 'warmup' => ['A' => $faceapiWarmupMs, 'B' => $pythonWarmupMs]];
     }
 
-    /** @param array<mixed> $faceapiEmbedding @param array<string,int|float> $faceapiMetrics @param array<string,int|float> $monitoringMetrics */
-    public function processRound(string $token, int $frameSequence, int $missedIntervals, string $image, array $faceapiEmbedding, array $faceapiMetrics, array $monitoringMetrics): array
+    /** @param array<mixed>|null $faceapiEmbedding @param array<string,int|float> $faceapiMetrics @param array<string,int|float> $monitoringMetrics */
+    public function processRound(string $token, int $frameSequence, int $missedIntervals, string $image, ?array $faceapiEmbedding, array $faceapiMetrics, array $monitoringMetrics): array
     {
         $results = [];
         $startedA = hrtime(true);
-        try {
-            $results['A'] = $this->recognition->architectureA($faceapiEmbedding, $faceapiMetrics);
-            $results['A']['metrics']['pipeline_total_ms'] = round((hrtime(true) - $startedA) / 1_000_000 + (float) ($faceapiMetrics['detection_ms'] ?? 0) + (float) ($faceapiMetrics['extraction_ms'] ?? 0), 3);
-        } catch (Throwable $error) {
-            $results['A'] = $this->failure('A', $error, $startedA);
+        if ($faceapiEmbedding === null) {
+            $results['A'] = $this->failure('A', new \RuntimeException('Falha na extracao Face API.js.', 422), $startedA, $faceapiMetrics);
+        } else {
+            try {
+                $results['A'] = $this->recognition->architectureA($faceapiEmbedding, $faceapiMetrics);
+                $results['A']['metrics']['pipeline_total_ms'] = round((hrtime(true) - $startedA) / 1_000_000 + (float) ($faceapiMetrics['detection_ms'] ?? 0) + (float) ($faceapiMetrics['extraction_ms'] ?? 0), 3);
+            } catch (Throwable $error) {
+                $results['A'] = $this->failure('A', $error, $startedA);
+            }
         }
 
         $startedB = hrtime(true);
@@ -93,8 +122,10 @@ final class ContinuousRecognitionService
     }
 
     /** @return array<string,mixed> */
-    private function failure(string $architecture, Throwable $error, int $started): array
+    /** @param array<string,int|float> $frontendMetrics */
+    private function failure(string $architecture, Throwable $error, int $started, array $frontendMetrics = []): array
     {
+        $pipelineTotalMs = (hrtime(true) - $started) / 1_000_000 + (float) ($frontendMetrics['faceapi_failure_ms'] ?? 0);
         return [
             'architecture' => $architecture,
             'status' => 'error',
@@ -110,7 +141,13 @@ final class ContinuousRecognitionService
             'ambiguity_margin_squared' => null,
             'decision_reason' => 'technical_failure',
             'error' => $error->getCode() === 422 ? 'facial_input_failure' : 'service_failure',
-            'metrics' => ['pipeline_total_ms' => round((hrtime(true) - $started) / 1_000_000, 3)],
+            'metrics' => array_merge($frontendMetrics, ['pipeline_total_ms' => round($pipelineTotalMs, 3)]),
         ];
+    }
+
+    /** @return array{A:float,B:float} */
+    private function thresholds(): array
+    {
+        return ['A' => $this->models['faceapi-recognition']['threshold_squared'], 'B' => $this->models['opencv-sface']['threshold_squared']];
     }
 }

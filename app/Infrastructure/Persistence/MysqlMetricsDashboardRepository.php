@@ -17,7 +17,7 @@ final class MysqlMetricsDashboardRepository
         'candidate_selection_ms', 'matched_name_query_ms', 'matched_name_decrypt_ms',
         'comparison_overhead_ms', 'comparison_total_ms',
         'image_decode_ms', 'facial_processing_ms', 'php_python_roundtrip_ms',
-        'php_python_overhead_ms', 'browser_php_roundtrip_ms', 'comparative_round_total_ms',
+        'php_python_overhead_ms', 'image_encode_ms', 'http_roundtrip_ms', 'end_to_end_ms', 'request_payload_bytes',
     ];
     private const LIFECYCLE_METRICS = ['initialization_ms', 'model_load_ms', 'runtime_ready_ms', 'first_inference_ms', 'warmup_ms'];
 
@@ -28,7 +28,7 @@ final class MysqlMetricsDashboardRepository
     {
         $sql = 'SELECT re.architecture_id, em.metric_value FROM recognition_events re
             INNER JOIN video_sessions vs ON vs.id = re.video_session_id
-            INNER JOIN execution_metrics em ON em.recognition_event_id = re.id AND em.metric_name = "pipeline_total_ms"
+            INNER JOIN execution_metrics em ON em.recognition_event_id = re.id AND em.metric_name = "end_to_end_ms"
             WHERE re.result IN '.self::VALID_RESULTS.' AND em.metric_value >= 0';
         $params = [];
         if ($sessionToken !== null) {
@@ -190,7 +190,7 @@ final class MysqlMetricsDashboardRepository
             MAX(CASE WHEN re.architecture_id = "B" THEN NULLIF(JSON_UNQUOTE(JSON_EXTRACT(re.metadata, "$.decision_reason")), "null") END) decision_reason_b,
             COUNT(DISTINCT re.architecture_id) architecture_count
             FROM recognition_events re INNER JOIN video_sessions vs ON vs.id = re.video_session_id
-            LEFT JOIN execution_metrics total ON total.recognition_event_id = re.id AND total.metric_name = "pipeline_total_ms"';
+            LEFT JOIN execution_metrics total ON total.recognition_event_id = re.id AND total.metric_name = "end_to_end_ms"';
         $params = [];
         if ($sessionToken !== null) {
             $sql .= ' WHERE vs.session_group_id = :session_group_id';
