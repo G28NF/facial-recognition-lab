@@ -3,6 +3,9 @@
 /.env.*
 !/.env.example
 
+# Memória temporária do Codex para continuidade após compactações.
+/contextoTemporario.md
+
 # Dados e artefatos locais gerados durante a execucao.
 /.phpunit.cache/
 /storage/logs/*.log
