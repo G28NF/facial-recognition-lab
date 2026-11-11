@@ -38,16 +38,27 @@
         maximum_images_per_person: Number(byId('importMaxImages').value),
         gallery_images_per_person: Number(byId('importGalleryImages').value)
     });
-    const failureText = code => ({
+    const failureText = code => {
+        try {
+            const failures = JSON.parse(code);
+            if (failures && typeof failures === 'object' && !Array.isArray(failures)) {
+                return Object.entries(failures).map(([architecture, failure]) => `${architecture}: ${failureText(failure)}`).join('; ');
+            }
+        } catch (_) {}
+        return ({
         unsupported_format: 'formato não suportado', invalid_image: 'imagem inválida', image_too_large: 'imagem muito grande',
         dimensions_invalid: 'dimensões inválidas', faceapi_rejected: 'Face API.js rejeitou a imagem',
         python_rejected: 'YuNet/SFace não encontrou um rosto válido',
+        no_face: 'nenhum rosto encontrado', multiple_faces: 'mais de um rosto encontrado',
+        biometric_failure: 'extração biométrica rejeitada', http_failure: 'falha temporária de comunicação',
+        internal_failure: 'falha temporária interna',
         python_unavailable: 'serviço Python indisponível; inicie-o e retome o lote',
         backend_rejected: 'o PHP rejeitou os dados processados da amostra',
         backend_failed: 'falha interna ao persistir ou validar a amostra',
         gallery_required: 'nenhuma gallery válida para a identidade',
         processing_failed: 'falha de processamento', import_cancelled: 'importação cancelada'
-    }[code] || code || '—');
+        }[code] || code || '—');
+    };
 
     const render = data => {
         current = data;
@@ -169,7 +180,7 @@
         return request(`import-status&import_token=${encodeURIComponent(current.import_token)}`);
     };
 
-    const prepareImage = async blob => {
+    const prepareImage = async (blob, extractFaceApi = true) => {
         const config = importCapabilities();
         if (blob.size > config.maximum_image_bytes) throw new Error('Imagem maior que o limite.');
         const bitmap = await createImageBitmap(blob);
@@ -179,8 +190,13 @@
             }
             const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height;
             canvas.getContext('2d').drawImage(bitmap, 0, 0);
-            const faceapiResult = await window.rfv2FaceApi.extractFromCanvas(canvas);
-            return {embedding: faceapiResult.embedding, image: canvas.toDataURL('image/jpeg', .9)};
+            let embedding = null;
+            let failure = null;
+            if (extractFaceApi) {
+                try { embedding = (await window.rfv2FaceApi.extractFromCanvas(canvas)).embedding; }
+                catch (error) { failure = ['no_face', 'multiple_faces'].includes(error?.rfv2FailureCode) ? error.rfv2FailureCode : 'internal_failure'; }
+            }
+            return {embedding, failure, image: canvas.toDataURL('image/jpeg', .9)};
         } finally { bitmap.close(); }
     };
 
@@ -205,19 +221,21 @@
                 }
                 let prepared;
                 try {
-                    prepared = await prepareImage(blob);
+                    prepared = await prepareImage(blob, !sample.completed_architectures.includes('A'));
                 } catch (error) {
-                    try { render(await refreshAfterFailure(sample, 'faceapi_rejected')); } catch (_) {}
+                    try { render(await refreshAfterFailure(sample, 'invalid_image')); } catch (_) {}
                     status.textContent = `${sample.identity}: ${error.message}`;
                     continue;
                 }
                 try {
-                    render(await jsonPost('import-process', {import_token: current.import_token, sample_token: sample.sample_token, faceapi_embedding: prepared.embedding, image: prepared.image}));
+                    render(await jsonPost('import-process', {import_token: current.import_token, sample_token: sample.sample_token, faceapi_embedding: prepared.embedding, faceapi_failure: prepared.failure, image: prepared.image}));
                 } catch (error) {
                     try {
-                        render(await refreshAfterFailure(sample, error.status === 409 ? null : 'backend_rejected'));
+                        render(await refreshAfterFailure(sample));
                     } catch (_) {}
-                    status.textContent = `${sample.identity}: ${error.message}`;
+                    status.textContent = `${sample.identity}: resultado não confirmado; retome para consultar e tentar novamente. ${error.message}`;
+                    byId('resumeImport').disabled = current?.status !== 'running' && current?.status !== 'paused';
+                    return;
                 }
                 sinceLastSampleRefresh++;
                 if (sinceLastSampleRefresh >= processQueueSize || current?.status !== 'running') {
@@ -254,7 +272,14 @@
         } catch (error) { status.textContent = error.message; }
     });
     byId('pauseImport').addEventListener('click', async () => { if (current) render(await jsonPost('import-pause', {import_token: current.import_token})); });
-    byId('resumeImport').addEventListener('click', async () => { if (current) { render(await jsonPost('import-resume', {import_token: current.import_token})); await refreshVisibleSamples(); await processPending(); } });
+    byId('resumeImport').addEventListener('click', async () => {
+        if (!current) return;
+        render(current.status === 'paused'
+            ? await jsonPost('import-resume', {import_token: current.import_token})
+            : await request(`import-status&import_token=${encodeURIComponent(current.import_token)}`));
+        await refreshVisibleSamples();
+        await processPending();
+    });
     byId('cancelImport').addEventListener('click', async () => {
         if (current && window.confirm('Cancelar a importação? Amostras já processadas serão preservadas.')) { render(await jsonPost('import-cancel', {import_token: current.import_token})); await refreshVisibleSamples(); }
     });

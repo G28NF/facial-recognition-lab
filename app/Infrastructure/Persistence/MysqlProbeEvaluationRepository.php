@@ -25,10 +25,6 @@ final class MysqlProbeEvaluationRepository
             INNER JOIN dataset_samples ds ON ds.dataset_import_id = di.id AND ds.status = "processed" AND ds.split_name = "probe"
             INNER JOIN dataset_import_identities dii ON dii.id = ds.import_identity_id
             INNER JOIN identities i ON i.id = dii.identity_id AND i.active = 1
-            INNER JOIN dataset_sample_embeddings fa ON fa.dataset_sample_id = ds.id AND fa.usage_type = "probe"
-            INNER JOIN biometric_models fm ON fm.id = fa.biometric_model_id AND fm.model_key = "faceapi-recognition"
-            INNER JOIN dataset_sample_embeddings sf ON sf.dataset_sample_id = ds.id AND sf.usage_type = "probe"
-            INNER JOIN biometric_models sm ON sm.id = sf.biometric_model_id AND sm.model_key = "opencv-sface"
             GROUP BY di.id, di.public_id, d.name ORDER BY di.id DESC LIMIT 20';
         $rows = $this->connection->pdo()->query($sql)->fetchAll();
         return array_map(static fn(array $row): array => [
@@ -45,7 +41,7 @@ final class MysqlProbeEvaluationRepository
         return $this->connection->transaction(function (PDO $pdo) use ($importToken, $requestedSamples): array {
             $import = $this->import($pdo, $importToken, true);
             $eligible = $this->eligibleCount($pdo, (int) $import['id']);
-            if ($eligible === 0) throw new DomainException('Nao existem probes validas com embeddings A e B para esta importacao.', 409);
+            if ($eligible === 0) throw new DomainException('Nao existem probes processadas com identidade de referencia para esta importacao.', 409);
             $publicId = random_bytes(16);
             $statement = $pdo->prepare('INSERT INTO probe_evaluations
                 (public_id, dataset_import_id, requested_samples, eligible_samples, status, started_at)
@@ -63,16 +59,20 @@ final class MysqlProbeEvaluationRepository
     public function probes(string $evaluationToken): array
     {
         $evaluation = $this->evaluation($this->connection->pdo(), $evaluationToken, false);
-        $sql = 'SELECT ds.id sample_id, dii.identity_id expected_identity_id,
+        $sql = 'SELECT ds.id sample_id, ds.failure_code, dii.identity_id expected_identity_id,
                 fa.ciphertext faceapi_ciphertext, fa.nonce faceapi_nonce, fa.auth_tag faceapi_auth_tag, fa.dimensions faceapi_dimensions,
-                sf.ciphertext sface_ciphertext, sf.nonce sface_nonce, sf.auth_tag sface_auth_tag, sf.dimensions sface_dimensions
+                sf.ciphertext sface_ciphertext, sf.nonce sface_nonce, sf.auth_tag sface_auth_tag, sf.dimensions sface_dimensions,
+                EXISTS(SELECT 1 FROM embeddings e INNER JOIN biometric_models m ON m.id=e.biometric_model_id
+                    WHERE e.identity_id=dii.identity_id AND e.active=1 AND m.model_key="faceapi-recognition") expected_faceapi_gallery,
+                EXISTS(SELECT 1 FROM embeddings e INNER JOIN biometric_models m ON m.id=e.biometric_model_id
+                    WHERE e.identity_id=dii.identity_id AND e.active=1 AND m.model_key="opencv-sface") expected_sface_gallery
             FROM dataset_samples ds
             INNER JOIN dataset_import_identities dii ON dii.id = ds.import_identity_id
             INNER JOIN identities i ON i.id = dii.identity_id AND i.active = 1
-            INNER JOIN dataset_sample_embeddings fa ON fa.dataset_sample_id = ds.id AND fa.usage_type = "probe"
-            INNER JOIN biometric_models fm ON fm.id = fa.biometric_model_id AND fm.model_key = "faceapi-recognition"
-            INNER JOIN dataset_sample_embeddings sf ON sf.dataset_sample_id = ds.id AND sf.usage_type = "probe"
-            INNER JOIN biometric_models sm ON sm.id = sf.biometric_model_id AND sm.model_key = "opencv-sface"
+            LEFT JOIN dataset_sample_embeddings fa ON fa.dataset_sample_id = ds.id AND fa.usage_type = "probe"
+                AND fa.biometric_model_id = (SELECT id FROM biometric_models WHERE model_key = "faceapi-recognition")
+            LEFT JOIN dataset_sample_embeddings sf ON sf.dataset_sample_id = ds.id AND sf.usage_type = "probe"
+                AND sf.biometric_model_id = (SELECT id FROM biometric_models WHERE model_key = "opencv-sface")
             WHERE ds.dataset_import_id = :import_id AND ds.status = "processed" AND ds.split_name = "probe"
             ORDER BY ds.id LIMIT :limit';
         $statement = $this->connection->pdo()->prepare($sql);
@@ -81,18 +81,21 @@ final class MysqlProbeEvaluationRepository
         $statement->execute();
         $probes = [];
         foreach ($statement as $row) {
+            $failures = json_decode($row['failure_code'] ?? '{}', true) ?: [];
             $faceapi = $sface = null;
             $faceapiFailure = $sfaceFailure = null;
             try {
                 $faceapi = $this->cipher->decryptEmbedding($row['faceapi_ciphertext'], $row['faceapi_nonce'], $row['faceapi_auth_tag'], (int) $row['faceapi_dimensions']);
             } catch (\Throwable) {
-                $faceapiFailure = 'probe_embedding_unavailable';
+                $faceapiFailure = $failures['A'] ?? 'probe_embedding_unavailable';
             }
             try {
                 $sface = $this->cipher->decryptEmbedding($row['sface_ciphertext'], $row['sface_nonce'], $row['sface_auth_tag'], (int) $row['sface_dimensions']);
             } catch (\Throwable) {
-                $sfaceFailure = 'probe_embedding_unavailable';
+                $sfaceFailure = $failures['B'] ?? 'probe_embedding_unavailable';
             }
+            if (!(bool) $row['expected_faceapi_gallery']) $faceapiFailure = 'expected_gallery_embedding_unavailable';
+            if (!(bool) $row['expected_sface_gallery']) $sfaceFailure = 'expected_gallery_embedding_unavailable';
             $probes[] = [
                 'sample_id' => (int) $row['sample_id'], 'expected_identity_id' => (int) $row['expected_identity_id'],
                 'faceapi' => $faceapi, 'sface' => $sface,
@@ -227,10 +230,6 @@ final class MysqlProbeEvaluationRepository
         $statement = $pdo->prepare('SELECT COUNT(DISTINCT ds.id) FROM dataset_samples ds
             INNER JOIN dataset_import_identities dii ON dii.id = ds.import_identity_id
             INNER JOIN identities i ON i.id = dii.identity_id AND i.active = 1
-            INNER JOIN dataset_sample_embeddings fa ON fa.dataset_sample_id = ds.id AND fa.usage_type = "probe"
-            INNER JOIN biometric_models fm ON fm.id = fa.biometric_model_id AND fm.model_key = "faceapi-recognition"
-            INNER JOIN dataset_sample_embeddings sf ON sf.dataset_sample_id = ds.id AND sf.usage_type = "probe"
-            INNER JOIN biometric_models sm ON sm.id = sf.biometric_model_id AND sm.model_key = "opencv-sface"
             WHERE ds.dataset_import_id = :import_id AND ds.status = "processed" AND ds.split_name = "probe"');
         $statement->execute(['import_id' => $importId]);
         return (int) $statement->fetchColumn();

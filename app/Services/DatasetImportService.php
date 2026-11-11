@@ -130,26 +130,35 @@ final class DatasetImportService
         }
     }
 
-    /** @param array<mixed> $faceapi @return array<string,mixed> */
-    public function process(string $token, string $sampleToken, array $faceapi, string $image): array
+    /** @param ?array<mixed> $faceapi @return array<string,mixed> */
+    public function process(string $token, string $sampleToken, ?array $faceapi, string $image, ?string $faceapiFailure = null): array
     {
         $location = $this->repository->sampleLocation($token, $sampleToken);
         if ($location['status'] === 'processed') return $this->repository->status($token);
         if ($location['status'] !== 'pending') throw new DomainException('Amostra nao esta pendente.', 409);
+        $this->validateJpegDataUri($image);
+        $vectors = ['A' => null, 'B' => null];
+        $failures = [];
         try {
-            $faceapiVector = VectorMath::validate($faceapi, $this->models['faceapi-recognition']['dimensions']);
-            $this->validateJpegDataUri($image);
-            $sface = $this->python->extract($image);
-            $result = $this->repository->store($token, $sampleToken, $faceapiVector, $sface['embedding']);
-            $this->removeNamedSampleFile($token, $location['temporary_name']);
-            if ($result['status'] === 'completed') $this->cleanupJob($token);
-            return $result;
+            if (in_array('A', $location['completed_architectures'], true)) {
+                // The persisted embedding is authoritative; do not repeat A during a B retry.
+            } elseif ($faceapi === null) {
+                $failures['A'] = in_array($faceapiFailure, ['no_face', 'multiple_faces'], true) ? $faceapiFailure : 'internal_failure';
+            } else {
+                $vectors['A'] = VectorMath::validate($faceapi, $this->models['faceapi-recognition']['dimensions']);
+            }
+        } catch (Throwable) { $failures['A'] = 'internal_failure'; }
+        try {
+            if (!in_array('B', $location['completed_architectures'], true)) $vectors['B'] = $this->python->extract($image)['embedding'];
         } catch (Throwable $error) {
-            if ($error instanceof DomainException && in_array($error->getCode(), [404, 409], true)) throw $error;
-            try { $this->repository->reject($token, $sampleToken, $this->failureCode($error)); } catch (Throwable) {}
-            $this->removeNamedSampleFile($token, $location['temporary_name']);
-            throw $error;
+            $failures['B'] = $error->getCode() === 422 ? 'biometric_failure' : ($error->getCode() === 503 ? 'http_failure' : 'internal_failure');
         }
+        // Persistence errors leave the sample pending; they must never reject a valid vector.
+        $result = $this->repository->store($token, $sampleToken, $vectors['A'], $vectors['B'], $failures);
+        $updated = $this->repository->sampleLocation($token, $sampleToken);
+        if ($updated['status'] !== 'pending') $this->removeNamedSampleFile($token, $location['temporary_name']);
+        if ($result['status'] === 'completed') $this->cleanupJob($token);
+        return $result;
     }
 
     /** @return array<string,mixed> */
@@ -163,8 +172,15 @@ final class DatasetImportService
         return $result;
     }
 
-    public function pause(string $token): array { return $this->repository->pause($token); }
-    public function resume(string $token): array { return $this->repository->resume($token); }
+    public function pause(string $token): array
+    {
+        return $this->repository->pause($token);
+    }
+
+    public function resume(string $token): array
+    {
+        return $this->repository->resume($token);
+    }
 
     public function cancel(string $token): array
     {
@@ -173,10 +189,21 @@ final class DatasetImportService
         return $result;
     }
 
-    public function status(string $token): array { return $this->repository->status($token); }
+    public function status(string $token): array
+    {
+        return $this->repository->status($token);
+    }
+
     /** @param list<string> $statuses @return array<string,mixed> */
-    public function samples(string $token, array $statuses, int $offset, int $limit): array { return $this->repository->samples($token, $statuses, $offset, $limit); }
-    public function recent(): array { return $this->repository->recent(); }
+    public function samples(string $token, array $statuses, int $offset, int $limit): array
+    {
+        return $this->repository->samples($token, $statuses, $offset, $limit);
+    }
+
+    public function recent(): array
+    {
+        return $this->repository->recent();
+    }
 
     /** @return array{path:string,mime_type:string} */
     public function image(string $token, string $sampleToken): array
@@ -292,14 +319,6 @@ final class DatasetImportService
             || (int) $dimensions[0] * (int) $dimensions[1] > (int) $this->config['maximum_pixels']) {
             throw new InvalidArgumentException('Dimensoes da imagem processada fora do limite.');
         }
-    }
-
-    private function failureCode(Throwable $error): string
-    {
-        if ($error instanceof RuntimeException && $error->getCode() === 422) return 'python_rejected';
-        if ($error instanceof RuntimeException && $error->getCode() === 503) return 'python_unavailable';
-        if ($error instanceof InvalidArgumentException) return 'backend_rejected';
-        return 'backend_failed';
     }
 
     /** @return array<string,int|string> */

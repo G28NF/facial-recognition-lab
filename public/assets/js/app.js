@@ -38,6 +38,34 @@
             signal: controller.signal
         }).finally(() => window.clearTimeout(timeout));
     }, 3);
+    const httpFailureStorage = {
+        getItem: () => window.localStorage.getItem('rfv2:http-failure-pending'),
+        setItem: entries => window.localStorage.setItem('rfv2:http-failure-pending', JSON.stringify(entries)),
+        removeItem: () => window.localStorage.removeItem('rfv2:http-failure-pending')
+    };
+    const httpFailureReporter = new globalThis.RFV2MetricFinalizer(payload => {
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 5000);
+        return request('session-http-failure', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload), signal: controller.signal})
+            .then(data => { if (data.status !== 'recorded') throw new Error('Registro HTTP não confirmado.'); return data; })
+            .finally(() => window.clearTimeout(timeout));
+    }, 3, httpFailureStorage);
+    const transportNotice = () => {
+        const {pending, exhausted} = httpFailureReporter.summary();
+        return pending + exhausted ? ` Falhas HTTP ainda sem confirmação de persistência: ${pending + exhausted}.` : '';
+    };
+    const submitArchitecture = async (architecture, body) => {
+        try {
+            const data = await request(`session-frame-${architecture.toLowerCase()}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body});
+            if (data.architecture !== architecture || !['recognized', 'unknown', 'inconclusive', 'error'].includes(data.status) || !data.metrics) throw new Error('Resposta inválida.');
+            return data;
+        } catch (error) {
+            const payload = JSON.parse(body);
+            await httpFailureReporter.submit({session_token: payload.session_token, frame_sequence: payload.frame_sequence, architecture});
+            error.httpFailure = true;
+            throw error;
+        }
+    };
     const finalizationNotice = ({pending, exhausted}) => exhausted > 0
         ? ` Métricas sem finalização após três tentativas: ${exhausted}.`
         : (pending > 0 ? ` Finalizações de métricas pendentes: ${pending}.` : '');
@@ -69,6 +97,11 @@
     const intervalInput = document.querySelector('#recognitionInterval');
     const manualButtons = [document.querySelector('#recognizeA'), document.querySelector('#recognizeB'), document.querySelector('#registerPerson')];
     const session = {state: 'idle', token: null, intervalMs: 1000, nextDue: 0, sequence: 0, missed: 0, timer: null, inFlight: null};
+    const activeSessionStorageKey = 'rfv2:active-session';
+    const rememberSession = () => {
+        if (session.token) window.localStorage.setItem(activeSessionStorageKey, session.token);
+    };
+    const forgetSession = () => window.localStorage.removeItem(activeSessionStorageKey);
 
     const sessionActive = () => !['idle', 'ended'].includes(session.state);
     const cameraReady = () => Boolean(stream && video.videoWidth && video.videoHeight && modelsReady);
@@ -79,8 +112,8 @@
         manualButtons.forEach(button => { button.disabled = !ready || active; });
         document.querySelector('#startSession').disabled = !ready || active;
         document.querySelector('#pauseSession').disabled = session.state !== 'running';
-        document.querySelector('#resumeSession').disabled = session.state !== 'paused';
-        document.querySelector('#endSession').disabled = !['running', 'paused', 'pausing'].includes(session.state);
+        document.querySelector('#resumeSession').disabled = !['paused', 'error'].includes(session.state);
+        document.querySelector('#endSession').disabled = !['running', 'paused', 'pausing', 'error'].includes(session.state);
         document.querySelector('#stopCamera').disabled = !stream || active;
         intervalInput.disabled = active;
         const badge = document.querySelector('#sessionState');
@@ -339,7 +372,7 @@
         } catch (error) { personStatus.textContent = error.message; }
     });
 
-    const outcomeText = (data) => data.status === 'recognized'
+    const outcomeText = (data) => data.server_result_unknown ? 'Resultado no servidor não confirmado' : data.status === 'recognized'
         ? `${data.name} (ID ${data.id})`
         : data.status === 'inconclusive' ? 'Resultado inconclusivo'
             : data.status === 'error' ? 'Falha no pipeline' : 'Pessoa desconhecida';
@@ -383,7 +416,8 @@
     const historyResult = item => {
         if (!item) return 'Indisponível';
         if (item.status === 'recognized') return item.name ? `Reconhecida: ${item.name}` : `Reconhecida: ID ${item.id}`;
-        if (item.status === 'error') return item.failure || 'Falha técnica';
+        if (item.server_result_unknown) return 'Resultado no servidor não confirmado';
+        if (item.status === 'error') return item.failure || item.error || 'Falha técnica';
         return item.status === 'inconclusive' ? 'Inconclusivo' : 'Desconhecida';
     };
 
@@ -507,6 +541,7 @@
     const schedulerTick = async () => {
         if (session.state !== 'running') return;
         await metricFinalizer.retryPending();
+        await httpFailureReporter.retryPending();
         const tickStarted = performance.now();
         const timing = globalThis.RFV2SchedulerPolicy.advance(session.nextDue, tickStarted, session.intervalMs);
         const schedulerDelay = timing.delayMs;
@@ -527,21 +562,20 @@
                 capture_ms: frame.captureMs
             };
 
-            if (!pythonPipelineWarmed) {
+            if (!faceApiPipelineWarmed || !pythonPipelineWarmed) {
                 sessionStatus.textContent = 'Aquecendo os pipelines com o primeiro rosto...';
                 let faceapiWarmupMs = null;
                 let faceapiFirstInferenceMs = null;
                 if (!faceApiPipelineWarmed) {
                     const warmupStarted = performance.now();
-                    try {
-                        const warmupFace = await faceApiEmbedding();
-                        faceapiWarmupMs = performance.now() - warmupStarted;
-                        faceapiFirstInferenceMs = warmupFace.metrics.first_inference_ms ?? null;
-                    } catch (_) {}
+                    const warmupFace = await faceApiEmbedding();
+                    faceapiWarmupMs = performance.now() - warmupStarted;
+                    faceapiFirstInferenceMs = warmupFace.metrics.first_inference_ms ?? null;
                 }
                 sequenceSubmissionStarted = true;
                 const warmupFrame = encodeFrame();
                 await request('session-warmup', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({session_token: session.token, frame_sequence: sequence, missed_intervals: missed, image: warmupFrame.image, ...(faceapiWarmupMs === null ? {} : {faceapi_warmup_ms: faceapiWarmupMs}), ...(faceapiFirstInferenceMs === null ? {} : {faceapi_first_inference_ms: faceapiFirstInferenceMs}), monitoring_metrics: monitoringMetrics})});
+                faceApiPipelineWarmed = true;
                 pythonPipelineWarmed = true;
                 committed = true;
                 sessionStatus.textContent = 'Pipelines aquecidos; medições oficiais começam no próximo quadro.';
@@ -558,7 +592,7 @@
                 const body = JSON.stringify({session_token: session.token, frame_sequence: sequence, missed_intervals: missed, faceapi_embedding: face.embedding, faceapi_failure: face.failure ?? null, faceapi_metrics: face.metrics, monitoring_metrics: metricsForRound});
                 const communicationStarted = performance.now();
                 sequenceSubmissionStarted = true;
-                const data = await request('session-frame-a', {method: 'POST', headers: {'Content-Type': 'application/json'}, body});
+                const data = await submitArchitecture('A', body);
                 const clientMetrics = {http_roundtrip_ms: performance.now() - communicationStarted, end_to_end_ms: performance.now() - totalStarted, request_payload_bytes: payloadBytes(body)};
                 Object.assign(data.metrics, clientMetrics);
                 await metricFinalizer.submit({session_token: session.token, frame_sequence: sequence, architecture: 'A', metrics: clientMetrics});
@@ -570,7 +604,7 @@
                 const body = JSON.stringify({session_token: session.token, frame_sequence: sequence, missed_intervals: missed, image: encoded.image, monitoring_metrics: metricsForRound});
                 const communicationStarted = performance.now();
                 sequenceSubmissionStarted = true;
-                const data = await request('session-frame-b', {method: 'POST', headers: {'Content-Type': 'application/json'}, body});
+                const data = await submitArchitecture('B', body);
                 const clientMetrics = {image_encode_ms: encoded.imageEncodeMs, http_roundtrip_ms: performance.now() - communicationStarted, end_to_end_ms: performance.now() - totalStarted, request_payload_bytes: payloadBytes(body)};
                 Object.assign(data.metrics, clientMetrics);
                 await metricFinalizer.submit({session_token: session.token, frame_sequence: sequence, architecture: 'B', metrics: clientMetrics});
@@ -583,14 +617,14 @@
                     const item = architecture === 'A' ? await executeA(results.length === 0 ? monitoringMetrics : {}) : await executeB(results.length === 0 ? monitoringMetrics : {});
                     results.push(item); committed = true;
                 } catch (error) {
-                    results.push({architecture, status: 'error', id: null, name: null, distance_squared: null, compared_embeddings: 0, error: 'service_failure', metrics: {}});
+                    results.push({architecture, status: 'error', id: null, name: null, distance_squared: null, compared_embeddings: 0, error: error.httpFailure ? 'http_failure' : 'internal_failure', server_result_unknown: true, metrics: {}});
                 }
             }
             results.sort((left, right) => left.architecture.localeCompare(right.architecture));
             renderContinuous(results, {});
             recordCurrentSessionFrame(sequence, results);
-            if (activeEvaluationIdentityId) { if (results.length === 2 && results.every(item => item.status !== 'error')) supervisedPaired++; for (const item of results) { const stats = supervised[item.architecture]; if (item.status === 'error') stats.technical++; else if (item.status === 'recognized') item.id === activeEvaluationIdentityId ? stats.correct++ : stats.incorrect++; else stats.notRecognized++; } renderSupervised(); }
-            sessionStatus.textContent = `Quadro ${sequence} concluído sem sobreposição.${finalizationNotice(metricFinalizer.summary())}`;
+            if (activeEvaluationIdentityId) { if (results.length === 2 && results.every(item => item.status !== 'error')) supervisedPaired++; for (const item of results) { const stats = supervised[item.architecture]; if (item.server_result_unknown) continue; else if (item.status === 'error') stats.technical++; else if (item.status === 'recognized') item.id === activeEvaluationIdentityId ? stats.correct++ : stats.incorrect++; else stats.notRecognized++; } renderSupervised(); }
+            sessionStatus.textContent = `Quadro ${sequence}: ${results.some(item => item.server_result_unknown) ? 'resultado não confirmado; consulte o histórico após recuperar a comunicação' : 'concluído sem sobreposição'}.${finalizationNotice(metricFinalizer.summary())}${transportNotice()}`;
         } catch (error) {
             sessionStatus.textContent = `Falha no quadro ${sequence}: ${error.message}. A próxima rodada será tentada.`;
             if (!committed && !sequenceSubmissionStarted && session.state === 'running') {
@@ -611,6 +645,7 @@
                 B: {initialization_ms: pythonInitializationMs}
             }})});
             session.token = data.session_token;
+            rememberSession();
             metricFinalizer.reset();
             activeEvaluationIdentityId = evaluationIdentityId;
             resetSupervised();
@@ -653,10 +688,21 @@
         session.state = 'resuming';
         updateControls();
         try {
-            await request('session-resume', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({session_token: session.token})});
+            const remote = await request(`session-status&session_token=${encodeURIComponent(session.token)}`);
+            session.intervalMs = remote.interval_ms;
+            session.sequence = remote.last_frame_sequence;
+            session.missed = remote.missed_intervals;
+            if (remote.status === 'paused') await request('session-resume', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({session_token: session.token})});
+            else if (remote.status !== 'running') {
+                session.state = 'ended';
+                forgetSession();
+                sessionStatus.textContent = `A sessão já está ${remote.status} no servidor.`;
+                updateControls();
+                return;
+            }
             session.nextDue = performance.now() + session.intervalMs;
             session.state = 'running';
-            sessionStatus.textContent = 'Sessão retomada a partir de um novo intervalo.';
+            sessionStatus.textContent = 'Sessão recuperada a partir do estado confirmado no servidor.';
             updateControls();
             scheduleNext();
         } catch (error) {
@@ -675,9 +721,11 @@
         try {
             if (session.inFlight) await session.inFlight;
             const finalizationSummary = await metricFinalizer.retryPending();
+            await httpFailureReporter.retryPending();
             await request('session-end', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({session_token: session.token})});
             session.state = 'ended';
-            sessionStatus.textContent = `Sessão encerrada e persistida.${closedFinalizationNotice(finalizationSummary)}`;
+            forgetSession();
+            sessionStatus.textContent = `Sessão encerrada e persistida.${closedFinalizationNotice(finalizationSummary)}${transportNotice()}`;
             window.dispatchEvent(new CustomEvent('rfv2:metrics-updated'));
         } catch (error) {
             session.state = previousState === 'paused' ? 'paused' : 'error';
@@ -712,6 +760,23 @@
         try {
             const bootstrap = await request('bootstrap');
             csrfToken = bootstrap.csrf_token;
+            await httpFailureReporter.retryPending();
+            const persistedToken = window.localStorage.getItem(activeSessionStorageKey);
+            if (persistedToken) {
+                try {
+                    const remote = await request(`session-status&session_token=${encodeURIComponent(persistedToken)}`);
+                    if (['running', 'paused'].includes(remote.status)) {
+                        session.token = persistedToken;
+                        session.intervalMs = remote.interval_ms;
+                        session.sequence = remote.last_frame_sequence;
+                        session.missed = remote.missed_intervals;
+                        session.state = remote.status === 'paused' ? 'paused' : 'error';
+                        sessionStatus.textContent = remote.status === 'paused'
+                            ? 'Sessão pausada recuperada do servidor.'
+                            : 'Sessão em execução recuperada; use Continuar para retomar a coleta.';
+                    } else forgetSession();
+                } catch (_) { forgetSession(); }
+            }
             await loadPeople();
             await loadEvaluationIdentities('');
             intervalInput.value = bootstrap.video.default_interval_ms;
@@ -748,8 +813,7 @@
     window.addEventListener('pagehide', () => {
         clearTimeout(session.timer);
         if (sessionActive() && session.token) {
-            session.state = 'ending';
-            fetch('?route=api/session-end', {method: 'POST', keepalive: true, headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken}, body: JSON.stringify({session_token: session.token})}).catch(() => {});
+            rememberSession();
         }
         stream?.getTracks().forEach(track => track.stop());
     });

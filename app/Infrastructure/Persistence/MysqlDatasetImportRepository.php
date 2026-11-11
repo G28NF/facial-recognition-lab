@@ -12,6 +12,7 @@ use RuntimeException;
 
 final class MysqlDatasetImportRepository
 {
+    private const TEMPORARY_FAILURES = ['http_failure', 'internal_failure'];
     public function __construct(
         private readonly PdoConnection $connection,
         private readonly AuthenticatedCipher $cipher,
@@ -120,7 +121,11 @@ final class MysqlDatasetImportRepository
         $count->execute([(int) $importId, ...$statuses]);
         $total = (int) $count->fetchColumn();
         $statement = $this->connection->pdo()->prepare('SELECT LOWER(HEX(ds.public_id)) sample_token, LOWER(HEX(ds.file_fingerprint)) fingerprint,
-            ds.split_name, ds.status, ds.failure_code, dii.label_ciphertext, dii.label_nonce, dii.label_auth_tag
+            ds.split_name, ds.status, ds.failure_code, dii.label_ciphertext, dii.label_nonce, dii.label_auth_tag,
+            EXISTS(SELECT 1 FROM dataset_sample_embeddings dse INNER JOIN biometric_models bm ON bm.id=dse.biometric_model_id
+                WHERE dse.dataset_sample_id=ds.id AND bm.model_key="faceapi-recognition") has_faceapi,
+            EXISTS(SELECT 1 FROM dataset_sample_embeddings dse INNER JOIN biometric_models bm ON bm.id=dse.biometric_model_id
+                WHERE dse.dataset_sample_id=ds.id AND bm.model_key="opencv-sface") has_sface
             FROM dataset_samples ds INNER JOIN dataset_import_identities dii ON dii.id = ds.import_identity_id
             WHERE '.$where.' ORDER BY ds.id LIMIT ? OFFSET ?');
         $parameter = 1;
@@ -135,6 +140,7 @@ final class MysqlDatasetImportRepository
                 'sample_token' => (string) $row['sample_token'], 'fingerprint' => (string) $row['fingerprint'],
                 'identity' => $this->cipher->decrypt($row['label_ciphertext'], $row['label_nonce'], $row['label_auth_tag'], 'dataset:identity-label'),
                 'split' => (string) $row['split_name'], 'status' => (string) $row['status'], 'failure_code' => $row['failure_code'],
+                'completed_architectures' => array_keys(array_filter(['A' => (bool) $row['has_faceapi'], 'B' => (bool) $row['has_sface']])),
             ];
         }
         $next = $offset + count($items);
@@ -195,19 +201,20 @@ final class MysqlDatasetImportRepository
         return $this->status($token);
     }
 
-    /** @return array{temporary_name:?string,mime_type:?string,status:string,source_type:string} */
+    /** @return array{temporary_name:?string,mime_type:?string,status:string,source_type:string,completed_architectures:list<string>} */
     public function sampleLocation(string $token, string $sampleToken): array
     {
         $statement = $this->sampleStatement($token, $sampleToken, false);
         $row = $statement->fetch();
         if (!is_array($row)) throw new DomainException('Amostra nao encontrada.', 404);
-        return ['temporary_name' => $row['temporary_name'], 'mime_type' => $row['mime_type'], 'status' => (string) $row['sample_status'], 'source_type' => (string) $row['source_type']];
+        return ['temporary_name' => $row['temporary_name'], 'mime_type' => $row['mime_type'], 'status' => (string) $row['sample_status'], 'source_type' => (string) $row['source_type'],
+            'completed_architectures' => $this->completedArchitectures($this->connection->pdo(), (int) $row['sample_id'])];
     }
 
-    /** @param list<float> $faceapi @param list<float> $sface @return array<string,mixed> */
-    public function store(string $token, string $sampleToken, array $faceapi, array $sface): array
+    /** @param ?list<float> $faceapi @param ?list<float> $sface @param array<string,string> $failures @return array<string,mixed> */
+    public function store(string $token, string $sampleToken, ?array $faceapi, ?array $sface, array $failures = []): array
     {
-        $this->connection->transaction(function (PDO $pdo) use ($token, $sampleToken, $faceapi, $sface): void {
+        $this->connection->transaction(function (PDO $pdo) use ($token, $sampleToken, $faceapi, $sface, $failures): void {
             $statement = $this->sampleStatement($token, $sampleToken, true);
             $row = $statement->fetch();
             if (!is_array($row)) throw new DomainException('Amostra nao encontrada.', 404);
@@ -216,8 +223,30 @@ final class MysqlDatasetImportRepository
                 throw new DomainException('Amostra nao esta disponivel para processamento.', 409);
             }
             $label = $this->cipher->decrypt($row['label_ciphertext'], $row['label_nonce'], $row['label_auth_tag'], 'dataset:identity-label');
-            $vectors = ['faceapi-recognition' => $faceapi, 'opencv-sface' => $sface];
             $modelIds = $this->modelIds($pdo);
+            $completed = $this->completedArchitectures($pdo, (int) $row['sample_id']);
+            $inputs = ['A' => ['model' => 'faceapi-recognition', 'vector' => $faceapi], 'B' => ['model' => 'opencv-sface', 'vector' => $sface]];
+            $safeFailures = $this->failureMap($row['failure_code'] ?? null);
+            $vectors = [];
+            foreach ($inputs as $architecture => $input) {
+                if (in_array($architecture, $completed, true)) { unset($safeFailures[$architecture]); continue; }
+                if ($input['vector'] !== null) { $vectors[$input['model']] = $input['vector']; unset($safeFailures[$architecture]); continue; }
+                $safeFailures[$architecture] = in_array($failures[$architecture] ?? null, ['no_face', 'multiple_faces', 'biometric_failure', 'http_failure', 'internal_failure'], true) ? $failures[$architecture] : 'internal_failure';
+            }
+            $prospective = $completed;
+            foreach (array_keys($vectors) as $modelKey) $prospective[] = $modelKey === 'faceapi-recognition' ? 'A' : 'B';
+            $prospective = array_values(array_unique($prospective));
+            if ($row['split_name'] === 'gallery' && $prospective === []) {
+                $retry = array_filter(['A', 'B'], fn(string $architecture): bool => in_array($safeFailures[$architecture] ?? null, self::TEMPORARY_FAILURES, true));
+                $status = $retry === [] ? 'rejected' : 'pending';
+                $pdo->prepare('UPDATE dataset_samples SET status = :status, failure_code = :failures,
+                    processed_at = :processed_at, temporary_name = :temporary_name WHERE id = :id')
+                    ->execute(['status' => $status, 'failures' => json_encode($safeFailures, JSON_THROW_ON_ERROR),
+                        'processed_at' => $status === 'pending' ? null : gmdate('Y-m-d H:i:s.v'),
+                        'temporary_name' => $status === 'pending' ? $row['temporary_name'] : null, 'id' => (int) $row['sample_id']]);
+                $this->refreshCounts($pdo, (int) $row['import_id'], false);
+                return;
+            }
             if ($row['split_name'] === 'gallery') {
                 $saved = $this->identities->importPair($label, $vectors);
                 $identityId = $saved['identity_id'];
@@ -254,8 +283,16 @@ final class MysqlDatasetImportRepository
                     $insert->execute();
                 }
             }
-            $pdo->prepare('UPDATE dataset_samples SET status = "processed", failure_code = NULL,
-                processed_at = UTC_TIMESTAMP(3), temporary_name = NULL WHERE id = :id')->execute(['id' => (int) $row['sample_id']]);
+            foreach (array_keys($vectors) as $modelKey) $completed[] = $modelKey === 'faceapi-recognition' ? 'A' : 'B';
+            $completed = array_values(array_unique($completed));
+            $retry = array_filter(['A', 'B'], fn(string $architecture): bool => !in_array($architecture, $completed, true) && in_array($safeFailures[$architecture] ?? null, self::TEMPORARY_FAILURES, true));
+            $reject = $row['split_name'] === 'gallery' && $completed === [] && $retry === [];
+            $status = $reject ? 'rejected' : ($retry === [] ? 'processed' : 'pending');
+            $pdo->prepare('UPDATE dataset_samples SET status = :status, failure_code = :failures,
+                processed_at = :processed_at, temporary_name = :temporary_name WHERE id = :id')
+                ->execute(['status' => $status, 'failures' => $safeFailures === [] ? null : json_encode($safeFailures, JSON_THROW_ON_ERROR),
+                    'processed_at' => $status === 'pending' ? null : gmdate('Y-m-d H:i:s.v'),
+                    'temporary_name' => $status === 'pending' ? $row['temporary_name'] : null, 'id' => (int) $row['sample_id']]);
             $this->refreshCounts($pdo, (int) $row['import_id'], false);
         });
         return $this->status($token);
@@ -375,7 +412,7 @@ final class MysqlDatasetImportRepository
     private function sampleStatement(string $token, string $sampleToken, bool $lock): \PDOStatement
     {
         $statement = $this->connection->pdo()->prepare('SELECT di.id import_id, di.status import_status, di.source_type,
-            ds.id sample_id, ds.status sample_status, ds.split_name, ds.temporary_name, ds.mime_type,
+            ds.id sample_id, ds.status sample_status, ds.split_name, ds.temporary_name, ds.mime_type, ds.failure_code,
             dii.id import_identity_id, dii.identity_id, dii.label_ciphertext, dii.label_nonce, dii.label_auth_tag
             FROM dataset_imports di INNER JOIN dataset_samples ds ON ds.dataset_import_id = di.id
             INNER JOIN dataset_import_identities dii ON dii.id = ds.import_identity_id
@@ -394,6 +431,23 @@ final class MysqlDatasetImportRepository
         foreach ($rows as $row) $ids[(string) $row['model_key']] = (int) $row['id'];
         if (count($ids) !== 2) throw new RuntimeException('Modelos biometricos da importacao ausentes.');
         return $ids;
+    }
+
+    /** @return list<string> */
+    private function completedArchitectures(PDO $pdo, int $sampleId): array
+    {
+        $statement = $pdo->prepare('SELECT bm.model_key FROM dataset_sample_embeddings dse INNER JOIN biometric_models bm ON bm.id=dse.biometric_model_id WHERE dse.dataset_sample_id=:sample_id');
+        $statement->execute(['sample_id' => $sampleId]);
+        $architectures = [];
+        foreach ($statement as $row) $architectures[] = $row['model_key'] === 'faceapi-recognition' ? 'A' : 'B';
+        return $architectures;
+    }
+
+    /** @return array<string,string> */
+    private function failureMap(mixed $value): array
+    {
+        $decoded = is_string($value) ? json_decode($value, true) : null;
+        return is_array($decoded) ? array_filter($decoded, static fn(mixed $failure): bool => is_string($failure)) : [];
     }
 
     private function tokenBytes(string $token): string

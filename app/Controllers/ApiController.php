@@ -59,6 +59,7 @@ final class ApiController
                 'recognize-b' => $this->recognizeB(),
                 'warmup-b' => $this->warmupB(),
                 'session-start' => $this->sessionStart(),
+                'session-status' => $this->sessionStatus(),
                 'session-evaluation-identity' => $this->sessionEvaluationIdentity(),
                 'session-pause' => $this->sessionPause(),
                 'session-resume' => $this->sessionResume(),
@@ -69,6 +70,7 @@ final class ApiController
                 'session-frame-a' => $this->sessionFrameA(),
                 'session-frame-b' => $this->sessionFrameB(),
                 'session-finalize' => $this->sessionFinalize(),
+                'session-http-failure' => $this->sessionHttpFailure(),
                 'dashboard' => $this->dashboard(),
                 'probe-evaluation-run' => $this->probeEvaluationRun(),
                 'metrics-delete-session' => $this->deleteMetricsSession(),
@@ -238,10 +240,21 @@ final class ApiController
         ], isset($input['expected_identity_id']) ? $this->positiveInt($input['expected_identity_id']) : null);
     }
 
+    /** @return array{status:string,interval_ms:int,missed_intervals:int,last_frame_sequence:int} */
+    private function sessionStatus(): array
+    {
+        $this->method('GET');
+        $this->auth->requireAuthenticated();
+        return $this->continuous->status($this->queryToken('session_token'));
+    }
+
     private function sessionEvaluationIdentity(): array
     {
-        $input=$this->protectedInput(1024); $identity=$input['expected_identity_id'] ?? null;
-        if ($identity !== null) $identity=$this->positiveInt($identity);
+        $input = $this->protectedInput(1024);
+        $identity = $input['expected_identity_id'] ?? null;
+        if ($identity !== null) {
+            $identity = $this->positiveInt($identity);
+        }
         return $this->continuous->changeEvaluationIdentity($this->token($input), $identity);
     }
 
@@ -323,10 +336,15 @@ final class ApiController
     {
         $input = $this->protectedInput(80_000);
         $embedding = $input['faceapi_embedding'] ?? null;
-        if ($embedding !== null && !is_array($embedding)) throw new InvalidArgumentException('Embedding Face API.js invalido.');
+        if ($embedding !== null && !is_array($embedding)) {
+            throw new InvalidArgumentException('Embedding Face API.js invalido.');
+        }
         return $this->continuous->processArchitectureA(
-            $this->token($input), $this->positiveInt($input['frame_sequence'] ?? null), $this->nonNegativeInt($input['missed_intervals'] ?? null),
-            $embedding, isset($input['faceapi_failure']) && is_string($input['faceapi_failure']) ? $input['faceapi_failure'] : null,
+            $this->token($input),
+            $this->positiveInt($input['frame_sequence'] ?? null),
+            $this->nonNegativeInt($input['missed_intervals'] ?? null),
+            $embedding,
+            isset($input['faceapi_failure']) && is_string($input['faceapi_failure']) ? $input['faceapi_failure'] : null,
             is_array($input['faceapi_metrics'] ?? null) ? $input['faceapi_metrics'] : [],
             is_array($input['monitoring_metrics'] ?? null) ? $input['monitoring_metrics'] : []
         );
@@ -336,10 +354,28 @@ final class ApiController
     private function sessionFrameB(): array
     {
         $input = $this->protectedInput(7_500_000);
-        if (!is_string($input['image'] ?? null)) throw new InvalidArgumentException('Imagem ausente.');
+        if (!is_string($input['image'] ?? null)) {
+            throw new InvalidArgumentException('Imagem ausente.');
+        }
         return $this->continuous->processArchitectureB(
-            $this->token($input), $this->positiveInt($input['frame_sequence'] ?? null), $this->nonNegativeInt($input['missed_intervals'] ?? null),
-            $input['image'], is_array($input['monitoring_metrics'] ?? null) ? $input['monitoring_metrics'] : []
+            $this->token($input),
+            $this->positiveInt($input['frame_sequence'] ?? null),
+            $this->nonNegativeInt($input['missed_intervals'] ?? null),
+            $input['image'],
+            is_array($input['monitoring_metrics'] ?? null) ? $input['monitoring_metrics'] : []
+        );
+    }
+
+    private function sessionHttpFailure(): array
+    {
+        $input = $this->protectedInput(2048);
+        if (!is_string($input['architecture'] ?? null)) {
+            throw new InvalidArgumentException('Arquitetura ausente.');
+        }
+        return $this->continuous->reportHttpFailure(
+            $this->token($input),
+            $input['architecture'],
+            $this->positiveInt($input['frame_sequence'] ?? null)
         );
     }
 
@@ -456,10 +492,10 @@ final class ApiController
     private function importProcess(): array
     {
         $input = $this->protectedInput(7_500_000);
-        if (!is_array($input['faceapi_embedding'] ?? null) || !is_string($input['image'] ?? null)) {
+        if ((($input['faceapi_embedding'] ?? null) !== null && !is_array($input['faceapi_embedding'])) || !is_string($input['image'] ?? null)) {
             throw new InvalidArgumentException('Dados da amostra invalidos.');
         }
-        return $this->imports->process($this->arrayToken($input, 'import_token'), $this->arrayToken($input, 'sample_token'), $input['faceapi_embedding'], $input['image']);
+        return $this->imports->process($this->arrayToken($input, 'import_token'), $this->arrayToken($input, 'sample_token'), $input['faceapi_embedding'] ?? null, $input['image'], is_string($input['faceapi_failure'] ?? null) ? $input['faceapi_failure'] : null);
     }
 
     /** @return array<string,mixed> */

@@ -234,7 +234,11 @@
             renderPrecision(data.precision);
             renderSessions(data);
             drawStagesChart(data.stages);
-            dashboardStatus.textContent = data.methodology.precision_note;
+            const reliability = ['A', 'B'].map(architecture => {
+                const item = data.session_statistics?.[architecture] || {};
+                return `${architecture}: falhas biométricas ${item.biometric_failures || 0}, internas ${item.internal_failures || 0}, HTTP do serviço ${item.service_http_failures || 0}, HTTP do navegador ${item.http_failures || 0} (${item.unresolved_http || 0} sem resultado no servidor)`;
+            }).join(' · ');
+            dashboardStatus.textContent = `${data.methodology.precision_note} ${reliability}.`;
         } catch (error) {
             dashboardStatus.textContent = error.message;
         }

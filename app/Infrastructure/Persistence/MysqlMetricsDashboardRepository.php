@@ -53,7 +53,9 @@ final class MysqlMetricsDashboardRepository
     {
         $sql = 'SELECT re.architecture_id, COUNT(*) executions, SUM(re.result = "error") failures,
             SUM(re.result = "recognized") recognized, SUM(re.result = "unknown") unknown,
-            SUM(re.result = "inconclusive") inconclusive
+            SUM(re.result = "inconclusive") inconclusive,
+            SUM(re.result = "error" AND JSON_UNQUOTE(JSON_EXTRACT(re.metadata, "$.failure")) IN ("no_face", "multiple_faces", "facial_input_failure")) biometric_failures,
+            SUM(re.result = "error" AND JSON_UNQUOTE(JSON_EXTRACT(re.metadata, "$.failure")) = "http_failure") service_http_failures
             FROM recognition_events re INNER JOIN video_sessions vs ON vs.id = re.video_session_id';
         $params = [];
         if ($sessionToken !== null) {
@@ -71,8 +73,25 @@ final class MysqlMetricsDashboardRepository
                 'recognized' => (int) $row['recognized'],
                 'unknown' => (int) $row['unknown'],
                 'inconclusive' => (int) $row['inconclusive'],
+                'biometric_failures' => (int) $row['biometric_failures'],
+                'service_http_failures' => (int) $row['service_http_failures'],
+                'internal_failures' => (int) $row['failures'] - (int) $row['biometric_failures'] - (int) $row['service_http_failures'],
             ];
         }
+        $transport = $this->connection->pdo()->prepare('SELECT vs.architecture_id, COUNT(*) http_failures,
+            SUM(NOT EXISTS (SELECT 1 FROM recognition_events re WHERE re.video_session_id=vs.id
+                AND em.metric_name=CONCAT("http_failure_frame_", re.frame_sequence))) unresolved_http
+            FROM execution_metrics em INNER JOIN video_sessions vs ON vs.id=em.video_session_id
+            WHERE em.recognition_event_id IS NULL AND em.metric_name REGEXP "^http_failure_frame_[0-9]+$"'.
+            ($sessionToken === null ? '' : ' AND vs.session_group_id=:session_group_id').' GROUP BY vs.architecture_id');
+        $this->executeBinary($transport, $params);
+        foreach ($transport as $row) {
+            $architecture = (string) $row['architecture_id'];
+            $counts[$architecture] ??= ['executions' => 0, 'failures' => 0, 'recognized' => 0, 'unknown' => 0, 'inconclusive' => 0, 'biometric_failures' => 0, 'service_http_failures' => 0, 'internal_failures' => 0];
+            $counts[$architecture]['http_failures'] = (int) $row['http_failures'];
+            $counts[$architecture]['unresolved_http'] = (int) $row['unresolved_http'];
+        }
+        foreach ($counts as &$count) $count += ['http_failures' => 0, 'unresolved_http' => 0];
         return $counts;
     }
 
