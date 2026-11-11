@@ -33,7 +33,17 @@ final class ContinuousRecognitionService
         $this->sessions->resume($token);
         return ['status' => 'running'];
     }
-    public function changeEvaluationIdentity(string $token, ?int $identityId): array { $this->sessions->changeEvaluationIdentity($token, $identityId); return ['status'=>'updated']; }
+
+    /** @return array{status:string,interval_ms:int,missed_intervals:int,last_frame_sequence:int} */
+    public function status(string $token): array
+    {
+        return $this->sessions->status($token);
+    }
+    public function changeEvaluationIdentity(string $token, ?int $identityId): array
+    {
+        $this->sessions->changeEvaluationIdentity($token, $identityId);
+        return ['status' => 'updated'];
+    }
 
     public function end(string $token): array
     {
@@ -46,6 +56,11 @@ final class ContinuousRecognitionService
     {
         $this->sessions->recordMonitoring($token, $frameSequence, $missedIntervals, $metrics);
         return ['status' => 'monitored', 'frame_sequence' => $frameSequence];
+    }
+
+    public function reportHttpFailure(string $token, string $architecture, int $frameSequence): array
+    {
+        return $this->sessions->recordHttpFailure($token, $architecture, $frameSequence);
     }
 
     /** @param array<string,int|float> $metrics */
@@ -146,7 +161,7 @@ final class ContinuousRecognitionService
             'candidate_distance_delta_squared' => null,
             'ambiguity_margin_squared' => null,
             'decision_reason' => 'technical_failure',
-            'error' => $failure ?? ($error->getCode() === 422 ? 'facial_input_failure' : 'service_failure'),
+            'error' => $failure ?? ($error->getCode() === 422 ? 'facial_input_failure' : ($error->getCode() === 503 ? 'http_failure' : 'internal_failure')),
             'metrics' => array_merge($frontendMetrics, ['pipeline_total_ms' => round($pipelineTotalMs, 3)]),
         ];
     }

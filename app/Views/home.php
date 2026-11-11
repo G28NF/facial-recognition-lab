@@ -223,12 +223,16 @@ $ready = $infrastructure['database'] === 'disponivel';
 
     <footer><span class="indicator <?= $ready ? 'ok' : 'warning' ?>"></span> Banco <?= htmlspecialchars($infrastructure['database'], ENT_QUOTES, 'UTF-8') ?> · schema <?= htmlspecialchars($infrastructure['schema_version'] ?? 'não verificado', ENT_QUOTES, 'UTF-8') ?></footer>
 </main>
-<?php if ($authenticated): ?><script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js" integrity="sha384-gzn2n++arkvyhdNLmUf1s6F5NZ8iAbZ7FhIt+Zw7Jlf1n/vNTmZ3+cYr7S4ogyco" crossorigin="anonymous" defer></script><?php endif; ?>
-<?php if ($authenticated): ?><script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous" defer></script><?php endif; ?>
+<?php if ($authenticated): ?>
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js" integrity="sha384-gzn2n++arkvyhdNLmUf1s6F5NZ8iAbZ7FhIt+Zw7Jlf1n/vNTmZ3+cYr7S4ogyco" crossorigin="anonymous" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous" defer></script>
+<?php endif; ?>
 <script src="assets/js/scheduler.js" defer></script>
 <script src="assets/js/metric-finalizer.js?v=<?= (int) filemtime(dirname(__DIR__, 2).'/public/assets/js/metric-finalizer.js') ?>" defer></script>
 <script src="assets/js/app.js?v=<?= (int) filemtime(dirname(__DIR__, 2).'/public/assets/js/app.js') ?>" defer></script>
-<?php if ($authenticated): ?><script src="assets/js/dashboard.js?v=<?= (int) filemtime(dirname(__DIR__, 2).'/public/assets/js/dashboard.js') ?>" defer></script><?php endif; ?>
-<?php if ($authenticated): ?><script src="assets/js/import.js?v=<?= (int) filemtime(dirname(__DIR__, 2).'/public/assets/js/import.js') ?>" defer></script><?php endif; ?>
+<?php if ($authenticated): ?>
+    <script src="assets/js/dashboard.js?v=<?= (int) filemtime(dirname(__DIR__, 2).'/public/assets/js/dashboard.js') ?>" defer></script>
+    <script src="assets/js/import.js?v=<?= (int) filemtime(dirname(__DIR__, 2).'/public/assets/js/import.js') ?>" defer></script>
+<?php endif; ?>
 </body>
 </html>
