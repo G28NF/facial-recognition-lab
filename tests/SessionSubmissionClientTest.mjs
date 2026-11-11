@@ -7,8 +7,8 @@ const check = (condition, message) => { if (!condition) throw new Error(message)
 
 check(script.includes('let sequenceSubmissionStarted = false;'), 'A rodada nao distingue uma falha anterior de uma confirmacao ambigua.');
 check(script.includes("request('session-warmup'"), 'session-warmup deixou de registrar a submissao de aquecimento.');
-check(script.includes("request('session-frame-a'"), 'A nao possui requisicao de sessao independente.');
-check(script.includes("request('session-frame-b'"), 'B nao possui requisicao de sessao independente.');
+check(script.includes("submitArchitecture('A'"), 'A nao possui requisicao de sessao independente.');
+check(script.includes("submitArchitecture('B'"), 'B nao possui requisicao de sessao independente.');
 check(script.includes('if (!committed && !sequenceSubmissionStarted && session.state === \'running\')'), 'O fallback ainda pode registrar presence para uma sequencia ja submetida.');
 check((script.match(/request\('session-presence'/g) || []).length === 1, 'session-presence nao ficou restrito ao fallback de falha do cliente.');
 check(!script.includes('const detectPresence = async () =>'), 'A presenca Face API.js ainda bloqueia a rodada comparativa.');
@@ -24,10 +24,17 @@ check(script.includes('faceapi_failure: face.failure ?? null'), 'Classificacao F
 check(script.includes('metricFinalizer.submit({session_token: session.token'), 'Falhas de finalizacao ainda podem ser ignoradas silenciosamente.');
 check(!script.includes("try { await request('session-finalize'"), 'session-finalize ainda descarta erros sem controlar pendencias.');
 check(script.includes("sequence % 2 === 1 ? ['A', 'B'] : ['B', 'A']"), 'A ordem A/B nao alterna por rodada.');
-check(script.includes('if (!pythonPipelineWarmed) {'), 'O aquecimento de B ainda depende do aquecimento de A.');
+check(script.includes('if (!faceApiPipelineWarmed || !pythonPipelineWarmed) {'), 'A coleta pode iniciar sem o aquecimento confirmado de A e B.');
+check(!script.includes('try {\n                        const warmupFace = await faceApiEmbedding();'), 'Falha no aquecimento de A ainda e ignorada.');
+check(script.includes("request(`session-status&session_token=${encodeURIComponent(session.token)}`)"), 'A recuperacao local nao consulta o estado real da sessao.');
+check(script.includes("remote.status === 'paused' ? 'paused' : 'error'"), 'A restauracao apos reload pode reiniciar a coleta sem acao explicita.');
+check(script.includes("item.failure || item.error || 'Falha técnica'"), 'O historico nao apresenta o campo error retornado pelo servidor.');
+check(!script.includes("fetch('?route=api/session-end', {method: 'POST', keepalive: true"), 'O reload ainda encerra a sessao sem confirmar o estado no servidor.');
 check(controller.includes("'session-frame-a' => $this->sessionFrameA()"), 'Endpoint A de sessao nao foi registrado.');
 check(controller.includes("'session-frame-b' => $this->sessionFrameB()"), 'Endpoint B de sessao nao foi registrado.');
+check(controller.includes("'session-status' => $this->sessionStatus()") && controller.includes("return $this->continuous->status($this->queryToken('session_token'));"), 'Consulta de estado da sessao nao esta exposta pelo controlador.');
 check(continuous.includes('processArchitectureA') && continuous.includes('processArchitectureB'), 'Processamento independente de A/B nao foi implementado.');
 check(continuous.includes("['no_face', 'multiple_faces']") && continuous.includes("'technical_failure'"), 'Servico nao preserva classificacao segura da Face API.js.');
+check(continuous.includes('return $this->sessions->status($token);'), 'Servico nao encaminha a consulta de estado da sessao.');
 
 console.log('OK - fallback de presenca protegido contra sequencia ja submetida');

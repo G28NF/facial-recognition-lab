@@ -199,6 +199,24 @@ final class MysqlVideoSessionRepository
         });
     }
 
+    /** Transport observations do not imply a completed biometric execution. */
+    public function recordHttpFailure(string $token, string $architecture, int $frameSequence): array
+    {
+        if (!in_array($architecture, ['A', 'B'], true) || $frameSequence < 1) throw new DomainException('Observacao HTTP invalida.', 422);
+        return $this->connection->transaction(function (PDO $pdo) use ($token, $architecture, $frameSequence): array {
+            // Serialize retries with each other and with recognition persistence.
+            $sessions = $this->sessions($pdo, $token, true);
+            $sessionId = $sessions['ids'][$architecture];
+            $name = 'http_failure_frame_'.$frameSequence;
+            $existing = $pdo->prepare('SELECT id FROM execution_metrics WHERE video_session_id=:session AND recognition_event_id IS NULL AND metric_name=:name LIMIT 1');
+            $existing->execute(['session' => $sessionId, 'name' => $name]);
+            if ($existing->fetchColumn() === false) $this->insertSessionMetric($pdo, $sessionId, $name, 1, 'count');
+            $event = $pdo->prepare('SELECT id FROM recognition_events WHERE video_session_id=:session AND frame_sequence=:sequence');
+            $event->execute(['session' => $sessionId, 'sequence' => $frameSequence]);
+            return ['status' => 'recorded', 'server_result_known' => $event->fetchColumn() !== false];
+        });
+    }
+
     /** @param array<string,int|float> $metrics */
     public function finalizeRound(string $token, int $frameSequence, array $metrics, ?string $architecture = null): void
     {
