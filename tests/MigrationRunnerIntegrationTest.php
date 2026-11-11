@@ -20,19 +20,24 @@ try {
     $applied = $runner->run();
     if (count($applied) !== 7 || (int) $pdo->query('SELECT COUNT(*) FROM schema_migrations')->fetchColumn() !== 7) throw new RuntimeException('Instalacao nova nao aplicou todas as migrations.');
     if ($runner->run() !== []) throw new RuntimeException('Segunda execucao alterou banco atualizado.');
-    $before = (int) $pdo->query('SELECT COUNT(*) FROM migration_runs WHERE status = "applied"')->fetchColumn();
+    $countApplied = $pdo->prepare('SELECT COUNT(*) FROM migration_runs WHERE status = :status');
+    $countApplied->execute(['status' => 'applied']);
+    $before = (int) $countApplied->fetchColumn();
     file_put_contents($directory.'/001_initial_schema.sql', "\n-- alteracao de teste", FILE_APPEND);
     try { $runner->run(); throw new RuntimeException('Checksum alterado nao foi bloqueado.'); } catch (RuntimeException $error) {
         if (!str_contains($error->getMessage(), 'foi alterada')) throw $error;
     }
-    if ((int) $pdo->query('SELECT COUNT(*) FROM migration_runs WHERE status = "applied"')->fetchColumn() !== $before) throw new RuntimeException('Verificacao de checksum modificou o historico.');
+    $countApplied->execute(['status' => 'applied']);
+    if ((int) $countApplied->fetchColumn() !== $before) throw new RuntimeException('Verificacao de checksum modificou o historico.');
 
     $interrupted = $directory.'-interrupted'; mkdir($interrupted, 0700);
     file_put_contents($interrupted.'/001_interrupt.sql', "CREATE TABLE interruption_probe (id INT NOT NULL);\nINSERT INTO schema_migrations (version) VALUES ('001_interrupt');\nINVALID SQL;");
     try { (new MigrationRunner($pdo, $interrupted))->run(); throw new RuntimeException('Interrupcao nao foi reportada.'); } catch (RuntimeException $error) {
         if (!str_contains($error->getMessage(), 'interrompida')) throw $error;
     }
-    if ((string) $pdo->query("SELECT status FROM migration_runs WHERE version = '001_interrupt'")->fetchColumn() !== 'running') throw new RuntimeException('Interrupcao DDL nao foi registrada.');
+    $interruptedStatus = $pdo->prepare('SELECT status FROM migration_runs WHERE version = :version');
+    $interruptedStatus->execute(['version' => '001_interrupt']);
+    if ((string) $interruptedStatus->fetchColumn() !== 'running') throw new RuntimeException('Interrupcao DDL nao foi registrada.');
     try { (new MigrationRunner($pdo, $interrupted))->run(); throw new RuntimeException('Migration interrompida foi reaplicada.'); } catch (RuntimeException $error) {
         if (!str_contains($error->getMessage(), 'interrompida requer revisao')) throw $error;
     }
