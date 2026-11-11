@@ -10,7 +10,7 @@ if (!str_contains(strtolower((string) $pdo->query('SELECT VERSION()')->fetchColu
     throw new RuntimeException('A integracao requer MariaDB do XAMPP.');
 }
 
-$tables = ['schema_migrations', 'architectures', 'identities', 'biometric_models', 'embeddings', 'datasets', 'experiments', 'video_sessions', 'recognition_events', 'execution_metrics', 'dataset_imports', 'dataset_import_identities', 'dataset_samples', 'dataset_sample_embeddings', 'probe_evaluations', 'probe_evaluation_results', 'webcam_evaluation_segments', 'webcam_evaluation_results'];
+$tables = ['schema_migrations', 'migration_runs', 'architectures', 'identities', 'biometric_models', 'embeddings', 'datasets', 'experiments', 'video_sessions', 'recognition_events', 'execution_metrics', 'dataset_imports', 'dataset_import_identities', 'dataset_samples', 'dataset_sample_embeddings', 'dataset_identity_source_links', 'dataset_integrity_findings', 'probe_evaluations', 'probe_evaluation_results', 'webcam_evaluation_segments', 'webcam_evaluation_results'];
 $placeholders = implode(',', array_fill(0, count($tables), '?'));
 $statement = $pdo->prepare("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name IN ({$placeholders})");
 $statement->execute($tables);
