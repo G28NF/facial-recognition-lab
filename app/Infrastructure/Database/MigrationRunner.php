@@ -67,7 +67,7 @@ final class MigrationRunner
         $this->pdo->exec('CREATE TABLE IF NOT EXISTS migration_runs (
             version VARCHAR(64) NOT NULL PRIMARY KEY, checksum BINARY(32) NOT NULL, status VARCHAR(16) NOT NULL,
             started_at DATETIME(3) NOT NULL, finished_at DATETIME(3) NULL,
-            CONSTRAINT chk_migration_runs_status CHECK (status IN ("running", "applied"))
+            CONSTRAINT chk_migration_runs_status CHECK (status IN (\'running\', \'applied\'))
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
     }
 
