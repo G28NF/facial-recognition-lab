@@ -28,9 +28,16 @@ foreach (['dataset_imports', 'dataset_samples', 'probe_evaluations', 'video_sess
 $pdo->beginTransaction();
 try {
     $suffix = bin2hex(random_bytes(6));
+    $source = 'partial-accounting-'.$suffix;
     $manifest = [];
-    foreach (range(1, 4) as $n) $manifest[] = ['identity'=>$person['name'], 'source_key'=>"{$suffix}/{$n}.jpg", 'fingerprint'=>hash('sha256',"{$suffix}/{$n}"), 'split'=>'probe', 'mime_type'=>'image/jpeg','byte_size'=>1000];
+    foreach (range(1, 4) as $n) $manifest[] = ['identity'=>$person['name'], 'source_namespace'=>$source, 'source_identity_key'=>'person', 'source_key'=>"{$suffix}/{$n}.jpg", 'fingerprint'=>hash('sha256',"{$suffix}/{$n}"), 'split'=>'probe', 'mime_type'=>'image/jpeg','byte_size'=>1000];
     $job = $imports->start('Regression '.$suffix, 'folder', $manifest, []);
+    $link = $pdo->prepare('INSERT INTO dataset_identity_source_links (source_namespace_hash, source_identity_key_hash, identity_id, status)
+        VALUES (:namespace_hash, :identity_hash, :identity_id, "resolved")');
+    $link->bindValue(':namespace_hash', $cipher->lookupHash('source:'.$source), PDO::PARAM_LOB);
+    $link->bindValue(':identity_hash', $cipher->lookupHash('identity:person'), PDO::PARAM_LOB);
+    $link->bindValue(':identity_id', $person['id'], PDO::PARAM_INT);
+    $link->execute();
     $token = $job['import_token'];
     $samples = $imports->samples($token, ['pending'], 0, 10)['items'];
     $imports->store($token, $samples[0]['sample_token'], null, $vectors['opencv-sface'], ['A'=>'no_face']);
@@ -45,7 +52,7 @@ try {
     $imports->store($token, $samples[3]['sample_token'], null, $vectors['opencv-sface']);
     $job = $imports->store($token, $samples[0]['sample_token'], null, $vectors['opencv-sface'], ['A'=>'no_face']);
     $check($job['processed_samples'] === 4 && $job['rejected_samples'] === 0, 'Resultados parciais ou retry descartados.');
-    $galleryManifest = [['identity'=>$person['name'], 'source_key'=>"{$suffix}/gallery.jpg", 'fingerprint'=>hash('sha256',"{$suffix}/gallery"), 'split'=>'gallery', 'mime_type'=>'image/jpeg','byte_size'=>1000]];
+    $galleryManifest = [['identity'=>$person['name'], 'source_namespace'=>$source, 'source_identity_key'=>'gallery-person', 'source_key'=>"{$suffix}/gallery.jpg", 'fingerprint'=>hash('sha256',"{$suffix}/gallery"), 'split'=>'gallery', 'mime_type'=>'image/jpeg','byte_size'=>1000]];
     $gallery = $imports->start('Partial gallery '.$suffix, 'folder', $galleryManifest, []);
     $sample = $imports->samples($gallery['import_token'], ['pending'], 0, 10)['items'][0];
     $embeddingCount = (int)$pdo->query('SELECT COUNT(*) FROM embeddings')->fetchColumn();
