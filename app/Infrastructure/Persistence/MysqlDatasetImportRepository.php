@@ -84,8 +84,8 @@ final class MysqlDatasetImportRepository
         $configuration = json_decode((string) $import['configuration'], true, 32, JSON_THROW_ON_ERROR);
         $linked = $this->connection->pdo()->prepare('SELECT COUNT(*) FROM dataset_import_identities WHERE dataset_import_id = :import_id AND identity_id IS NOT NULL');
         $linked->execute(['import_id' => (int) $import['id']]);
-        $excluded = $this->connection->pdo()->prepare('SELECT COUNT(*) FROM dataset_samples WHERE dataset_import_id = :import_id AND integrity_status <> "clear"');
-        $excluded->execute(['import_id' => (int) $import['id']]);
+        $excluded = $this->connection->pdo()->prepare('SELECT COUNT(*) FROM dataset_samples WHERE dataset_import_id = :import_id AND integrity_status <> :clear');
+        $excluded->execute(['import_id' => (int) $import['id'], 'clear' => 'clear']);
         $current = $this->connection->pdo()->prepare('SELECT dii.label_ciphertext, dii.label_nonce, dii.label_auth_tag
             FROM dataset_samples ds INNER JOIN dataset_import_identities dii ON dii.id = ds.import_identity_id
             WHERE ds.dataset_import_id = :import_id AND ds.status = "pending" ORDER BY ds.id LIMIT 1');
@@ -275,9 +275,9 @@ final class MysqlDatasetImportRepository
                     }
                 } catch (DomainException $error) {
                     if ($error->getCode() !== 409) throw $error;
-                    $pdo->prepare('UPDATE dataset_identity_source_links SET status = "ambiguous"
+                    $pdo->prepare('UPDATE dataset_identity_source_links SET status = :status
                         WHERE source_namespace_hash = :namespace_hash AND source_identity_key_hash = :identity_hash')
-                        ->execute(['namespace_hash' => $row['source_namespace_hash'], 'identity_hash' => $row['source_identity_key_hash']]);
+                        ->execute(['status' => 'ambiguous', 'namespace_hash' => $row['source_namespace_hash'], 'identity_hash' => $row['source_identity_key_hash']]);
                     $this->excludeForIntegrity($pdo, $row, 'ambiguous_source_identity');
                     return;
                 }
@@ -531,11 +531,11 @@ final class MysqlDatasetImportRepository
     /** @param array<string,mixed> $row */
     private function excludeForIntegrity(PDO $pdo, array $row, string $reason): void
     {
-        $pdo->prepare('UPDATE dataset_import_identities SET integrity_status = "ambiguous", integrity_reason = :reason
-            WHERE id = :id')->execute(['reason' => $reason, 'id' => (int) $row['import_identity_id']]);
-        $pdo->prepare('UPDATE dataset_samples SET status = "processed", integrity_status = "excluded", integrity_reason = :reason,
+        $pdo->prepare('UPDATE dataset_import_identities SET integrity_status = :integrity_status, integrity_reason = :reason
+            WHERE id = :id')->execute(['integrity_status' => 'ambiguous', 'reason' => $reason, 'id' => (int) $row['import_identity_id']]);
+        $pdo->prepare('UPDATE dataset_samples SET status = "processed", integrity_status = :integrity_status, integrity_reason = :reason,
             processed_at = UTC_TIMESTAMP(3), temporary_name = NULL WHERE id = :id')
-            ->execute(['reason' => $reason, 'id' => (int) $row['sample_id']]);
+            ->execute(['integrity_status' => 'excluded', 'reason' => $reason, 'id' => (int) $row['sample_id']]);
         $this->refreshCounts($pdo, (int) $row['import_id'], false);
     }
 
