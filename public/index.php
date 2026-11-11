@@ -10,6 +10,7 @@ use App\Infrastructure\Persistence\MysqlVideoSessionRepository;
 use App\Infrastructure\Persistence\MysqlMetricsDashboardRepository;
 use App\Infrastructure\Persistence\MysqlDatasetImportRepository;
 use App\Infrastructure\Persistence\MysqlProbeEvaluationRepository;
+use App\Infrastructure\Persistence\MysqlDatasetIntegrityRepository;
 use App\Infrastructure\Security\AuthenticatedCipher;
 use App\Services\ComparisonService;
 use App\Services\ContinuousRecognitionService;
@@ -21,6 +22,7 @@ use App\Services\PythonFaceClient;
 use App\Services\RecognitionService;
 use App\Services\RegistrationService;
 use App\Services\DatasetImportService;
+use App\Services\DatasetIntegrityService;
 use App\Services\ProbeEvaluationService;
 
 $projectRoot = require dirname(__DIR__).'/app/Core/Bootstrap.php';
@@ -72,6 +74,7 @@ if (str_starts_with($route, 'api/')) {
         new ContinuousRecognitionService($videoSessions, $recognition, $python, $models),
         $dashboard,
         $imports,
+        new DatasetIntegrityService($repository, new MysqlDatasetIntegrityRepository($connection), $models),
         $probeEvaluations,
         require $projectRoot.'/config/video.php'
     ))->dispatch(substr($route, 4));
