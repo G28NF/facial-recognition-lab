@@ -38,6 +38,25 @@ try {
     $imports->store($first['import_token'], $sample['sample_token'], $one, $one);
     $firstIdentity = (int) $pdo->query('SELECT identity_id FROM dataset_import_identities ORDER BY id DESC LIMIT 1')->fetchColumn();
 
+    $clearProbe = $imports->start('Integridade clear '.$suffix, 'folder', [
+        $entry('Nome original', $source, 'person-1', 'clear-probe.jpg', str_repeat('f', 64), 'probe'),
+    ], []);
+    $sample = $imports->samples($clearProbe['import_token'], ['pending'], 0, 1)['items'][0];
+    $imports->store($clearProbe['import_token'], $sample['sample_token'], $one, $one);
+    $available = array_column($evaluation->availableImports(), 'eligible_samples', 'import_token');
+    if (($available[$clearProbe['import_token']] ?? 0) !== 1) throw new RuntimeException('Probe clear nao foi mantida elegivel.');
+    $clearImportId = (int) $pdo->query('SELECT id FROM dataset_imports ORDER BY id DESC LIMIT 1')->fetchColumn();
+    $pdo->prepare('UPDATE dataset_samples SET integrity_status = :status WHERE dataset_import_id = :import_id')
+        ->execute(['status' => 'excluded', 'import_id' => $clearImportId]);
+    $available = array_column($evaluation->availableImports(), 'eligible_samples', 'import_token');
+    if (isset($available[$clearProbe['import_token']])) throw new RuntimeException('Probe excluida permaneceu elegivel.');
+    $pdo->prepare('UPDATE dataset_samples SET integrity_status = :status WHERE dataset_import_id = :import_id')
+        ->execute(['status' => 'clear', 'import_id' => $clearImportId]);
+    $pdo->prepare('UPDATE dataset_import_identities SET integrity_status = :status WHERE dataset_import_id = :import_id')
+        ->execute(['status' => 'ambiguous', 'import_id' => $clearImportId]);
+    $available = array_column($evaluation->availableImports(), 'eligible_samples', 'import_token');
+    if (isset($available[$clearProbe['import_token']])) throw new RuntimeException('Probe ambigua permaneceu elegivel.');
+
     $renamed = $imports->start('Integridade fonte 2 '.$suffix, 'folder', [
         $entry('Nome alternativo', $source, 'person-1', 'b.jpg', str_repeat('b', 64), 'gallery'),
     ], []);
@@ -68,6 +87,9 @@ try {
         throw new RuntimeException('Imagem repetida entre datasets nao foi excluida por integridade.');
     }
     $imports->store($overlap['import_token'], $probe['sample_token'], $one, $one);
+    if ($imports->status($overlap['import_token'])['integrity_excluded_samples'] !== 1) {
+        throw new RuntimeException('Resumo nao contabilizou exclusao por integridade.');
+    }
     if ((int) $pdo->query('SELECT COUNT(*) FROM dataset_sample_embeddings WHERE dataset_sample_id = (SELECT id FROM dataset_samples ORDER BY id DESC LIMIT 1)')->fetchColumn() !== 0) {
         throw new RuntimeException('Probe sobreposta criou embeddings para avaliacao.');
     }
