@@ -58,7 +58,7 @@ final class MysqlDatasetImportRepository
             }
 
             foreach ($manifest as $entry) {
-                $this->insertManifestEntry($pdo, $importId, $entry);
+                $this->insertManifestEntry($pdo, $importId, $datasetId, $entry);
             }
             $this->refreshCounts($pdo, $importId, true);
             return bin2hex($publicId);
@@ -84,6 +84,8 @@ final class MysqlDatasetImportRepository
         $configuration = json_decode((string) $import['configuration'], true, 32, JSON_THROW_ON_ERROR);
         $linked = $this->connection->pdo()->prepare('SELECT COUNT(*) FROM dataset_import_identities WHERE dataset_import_id = :import_id AND identity_id IS NOT NULL');
         $linked->execute(['import_id' => (int) $import['id']]);
+        $excluded = $this->connection->pdo()->prepare('SELECT COUNT(*) FROM dataset_samples WHERE dataset_import_id = :import_id AND integrity_status <> "clear"');
+        $excluded->execute(['import_id' => (int) $import['id']]);
         $current = $this->connection->pdo()->prepare('SELECT dii.label_ciphertext, dii.label_nonce, dii.label_auth_tag
             FROM dataset_samples ds INNER JOIN dataset_import_identities dii ON dii.id = ds.import_identity_id
             WHERE ds.dataset_import_id = :import_id AND ds.status = "pending" ORDER BY ds.id LIMIT 1');
@@ -95,6 +97,7 @@ final class MysqlDatasetImportRepository
             'total_samples' => (int) $import['total_samples'], 'processed_samples' => (int) $import['processed_samples'],
             'rejected_samples' => (int) $import['rejected_samples'], 'pending_samples' => (int) $import['total_samples'] - (int) $import['processed_samples'] - (int) $import['rejected_samples'],
             'linked_identities' => (int) $linked->fetchColumn(),
+            'integrity_excluded_samples' => (int) $excluded->fetchColumn(),
             'configuration' => is_array($configuration) ? $configuration : [], 'started_at' => $import['started_at'],
             'finished_at' => $import['finished_at'],
             'current_identity' => is_array($currentRow) ? $this->cipher->decrypt($currentRow['label_ciphertext'], $currentRow['label_nonce'], $currentRow['label_auth_tag'], 'dataset:identity-label') : null,
@@ -121,7 +124,8 @@ final class MysqlDatasetImportRepository
         $count->execute([(int) $importId, ...$statuses]);
         $total = (int) $count->fetchColumn();
         $statement = $this->connection->pdo()->prepare('SELECT LOWER(HEX(ds.public_id)) sample_token, LOWER(HEX(ds.file_fingerprint)) fingerprint,
-            ds.split_name, ds.status, ds.failure_code, dii.label_ciphertext, dii.label_nonce, dii.label_auth_tag,
+            ds.split_name, ds.status, ds.failure_code, ds.integrity_status, ds.integrity_reason,
+            dii.label_ciphertext, dii.label_nonce, dii.label_auth_tag,
             EXISTS(SELECT 1 FROM dataset_sample_embeddings dse INNER JOIN biometric_models bm ON bm.id=dse.biometric_model_id
                 WHERE dse.dataset_sample_id=ds.id AND bm.model_key="faceapi-recognition") has_faceapi,
             EXISTS(SELECT 1 FROM dataset_sample_embeddings dse INNER JOIN biometric_models bm ON bm.id=dse.biometric_model_id
@@ -140,6 +144,7 @@ final class MysqlDatasetImportRepository
                 'sample_token' => (string) $row['sample_token'], 'fingerprint' => (string) $row['fingerprint'],
                 'identity' => $this->cipher->decrypt($row['label_ciphertext'], $row['label_nonce'], $row['label_auth_tag'], 'dataset:identity-label'),
                 'split' => (string) $row['split_name'], 'status' => (string) $row['status'], 'failure_code' => $row['failure_code'],
+                'integrity_status' => (string) $row['integrity_status'], 'integrity_reason' => $row['integrity_reason'],
                 'completed_architectures' => array_keys(array_filter(['A' => (bool) $row['has_faceapi'], 'B' => (bool) $row['has_sface']])),
             ];
         }
@@ -222,6 +227,12 @@ final class MysqlDatasetImportRepository
             if ($row['import_status'] !== 'running' || $row['sample_status'] !== 'pending') {
                 throw new DomainException('Amostra nao esta disponivel para processamento.', 409);
             }
+            if ($row['sample_integrity_status'] !== 'clear') {
+                $pdo->prepare('UPDATE dataset_samples SET status = "processed", processed_at = UTC_TIMESTAMP(3), temporary_name = NULL WHERE id = :id')
+                    ->execute(['id' => (int) $row['sample_id']]);
+                $this->refreshCounts($pdo, (int) $row['import_id'], false);
+                return;
+            }
             $label = $this->cipher->decrypt($row['label_ciphertext'], $row['label_nonce'], $row['label_auth_tag'], 'dataset:identity-label');
             $modelIds = $this->modelIds($pdo);
             $completed = $this->completedArchitectures($pdo, (int) $row['sample_id']);
@@ -248,7 +259,28 @@ final class MysqlDatasetImportRepository
                 return;
             }
             if ($row['split_name'] === 'gallery') {
-                $saved = $this->identities->importPair($label, $vectors);
+                $source = $this->sourceLink($pdo, $row);
+                if ($source['status'] === 'ambiguous') {
+                    $this->excludeForIntegrity($pdo, $row, 'ambiguous_source_identity');
+                    return;
+                }
+                try {
+                    if ($source['identity_id'] !== null) {
+                        $saved = ['identity_id' => $source['identity_id'], 'embedding_ids' => $this->identities->appendToIdentity($source['identity_id'], $vectors)];
+                    } else {
+                        $saved = $this->identities->importPair($label, $vectors, false, (bool) $row['source_identity_is_stable']);
+                        $pdo->prepare('UPDATE dataset_identity_source_links SET identity_id = :identity_id, status = "resolved"
+                            WHERE source_namespace_hash = :namespace_hash AND source_identity_key_hash = :identity_hash')
+                            ->execute(['identity_id' => $saved['identity_id'], 'namespace_hash' => $row['source_namespace_hash'], 'identity_hash' => $row['source_identity_key_hash']]);
+                    }
+                } catch (DomainException $error) {
+                    if ($error->getCode() !== 409) throw $error;
+                    $pdo->prepare('UPDATE dataset_identity_source_links SET status = "ambiguous"
+                        WHERE source_namespace_hash = :namespace_hash AND source_identity_key_hash = :identity_hash')
+                        ->execute(['namespace_hash' => $row['source_namespace_hash'], 'identity_hash' => $row['source_identity_key_hash']]);
+                    $this->excludeForIntegrity($pdo, $row, 'ambiguous_source_identity');
+                    return;
+                }
                 $identityId = $saved['identity_id'];
                 $link = $pdo->prepare('UPDATE dataset_import_identities SET identity_id = :identity_id WHERE id = :id');
                 $link->execute(['identity_id' => $identityId, 'id' => (int) $row['import_identity_id']]);
@@ -261,12 +293,13 @@ final class MysqlDatasetImportRepository
             } else {
                 $identityId = $row['identity_id'];
                 if ($identityId === null) {
-                    $identity = $pdo->prepare('SELECT id FROM identities WHERE name_lookup_hash = :name_hash AND active = 1 LIMIT 1');
-                    $identity->bindValue(':name_hash', $this->cipher->lookupHash($label), PDO::PARAM_LOB);
-                    $identity->execute();
-                    $identityId = $identity->fetchColumn();
-                    if ($identityId === false) throw new DomainException('A probe exige uma amostra gallery processada para a identidade.', 409);
-                    $pdo->prepare('UPDATE dataset_import_identities SET identity_id = :identity_id WHERE id = :id')->execute(['identity_id' => (int) $identityId, 'id' => (int) $row['import_identity_id']]);
+                    $source = $this->sourceLink($pdo, $row);
+                    if ($source['identity_id'] === null || $source['status'] !== 'resolved') {
+                        $this->excludeForIntegrity($pdo, $row, 'expected_identity_unresolved');
+                        return;
+                    }
+                    $identityId = $source['identity_id'];
+                    $pdo->prepare('UPDATE dataset_import_identities SET identity_id = :identity_id WHERE id = :id')->execute(['identity_id' => $identityId, 'id' => (int) $row['import_identity_id']]);
                 }
                 $insert = $pdo->prepare('INSERT INTO dataset_sample_embeddings
                     (dataset_sample_id, biometric_model_id, usage_type, ciphertext, nonce, auth_tag, key_id, dimensions)
@@ -314,7 +347,7 @@ final class MysqlDatasetImportRepository
     }
 
     /** @param array<string,mixed> $entry */
-    private function insertManifestEntry(PDO $pdo, int $importId, array $entry): void
+    private function insertManifestEntry(PDO $pdo, int $importId, int $datasetId, array $entry): void
     {
         $label = $entry['identity'] ?? null;
         $sourceKey = $entry['source_key'] ?? null;
@@ -326,6 +359,16 @@ final class MysqlDatasetImportRepository
         }
         $fingerprintBytes = hex2bin($fingerprint);
         if (!is_string($fingerprintBytes)) throw new InvalidArgumentException('Fingerprint de arquivo invalido.');
+        $sourceNamespace = $entry['source_namespace'] ?? null;
+        $sourceIdentityKey = $entry['source_identity_key'] ?? null;
+        if (($sourceNamespace === null) !== ($sourceIdentityKey === null)
+            || ($sourceNamespace !== null && (!is_string($sourceNamespace) || !is_string($sourceIdentityKey)
+                || $sourceNamespace === '' || $sourceIdentityKey === '' || mb_strlen($sourceNamespace) > 200 || mb_strlen($sourceIdentityKey) > 200))) {
+            throw new InvalidArgumentException('Identificador estavel da fonte invalido.');
+        }
+        $stableIdentity = $sourceNamespace !== null;
+        $sourceNamespaceHash = $this->cipher->lookupHash($stableIdentity ? 'source:'.$sourceNamespace : 'dataset:'.$datasetId);
+        $sourceIdentityHash = $this->cipher->lookupHash($stableIdentity ? 'identity:'.$sourceIdentityKey : 'label:'.$label);
         $duplicate = $pdo->prepare('SELECT ds.id FROM dataset_samples ds
             INNER JOIN dataset_imports previous_import ON previous_import.id = ds.dataset_import_id
             INNER JOIN dataset_imports current_import ON current_import.id = :import_id
@@ -334,19 +377,32 @@ final class MysqlDatasetImportRepository
         $duplicate->bindValue(':fingerprint', $fingerprintBytes, PDO::PARAM_LOB);
         $duplicate->execute();
         if ($duplicate->fetchColumn() !== false) return;
+        $overlap = $pdo->prepare('SELECT ds.split_name FROM dataset_samples ds
+            INNER JOIN dataset_imports previous_import ON previous_import.id = ds.dataset_import_id
+            WHERE previous_import.dataset_id <> :dataset_id AND ds.file_fingerprint = :fingerprint LIMIT 1');
+        $overlap->bindValue(':dataset_id', $datasetId, PDO::PARAM_INT);
+        $overlap->bindValue(':fingerprint', $fingerprintBytes, PDO::PARAM_LOB);
+        $overlap->execute();
+        $overlapSplit = $overlap->fetchColumn();
         $labelHash = $this->cipher->lookupHash($label);
-        $identity = $pdo->prepare('SELECT id FROM dataset_import_identities WHERE dataset_import_id = :import_id AND source_label_hash = :label_hash LIMIT 1');
+        $identity = $pdo->prepare('SELECT id FROM dataset_import_identities WHERE dataset_import_id = :import_id
+            AND source_namespace_hash = :namespace_hash AND source_identity_key_hash = :identity_hash LIMIT 1');
         $identity->bindValue(':import_id', $importId, PDO::PARAM_INT);
-        $identity->bindValue(':label_hash', $labelHash, PDO::PARAM_LOB);
+        $identity->bindValue(':namespace_hash', $sourceNamespaceHash, PDO::PARAM_LOB);
+        $identity->bindValue(':identity_hash', $sourceIdentityHash, PDO::PARAM_LOB);
         $identity->execute();
         $identityId = $identity->fetchColumn();
         if ($identityId === false) {
             $encrypted = $this->cipher->encrypt($label, 'dataset:identity-label');
             $insertIdentity = $pdo->prepare('INSERT INTO dataset_import_identities
-                (dataset_import_id, source_label_hash, label_ciphertext, label_nonce, label_auth_tag, label_key_id)
-                VALUES (:import_id, :label_hash, :ciphertext, :nonce, :auth_tag, :key_id)');
+                (dataset_import_id, source_label_hash, source_namespace_hash, source_identity_key_hash, source_identity_is_stable,
+                 label_ciphertext, label_nonce, label_auth_tag, label_key_id)
+                VALUES (:import_id, :label_hash, :namespace_hash, :identity_hash, :stable, :ciphertext, :nonce, :auth_tag, :key_id)');
             $insertIdentity->bindValue(':import_id', $importId, PDO::PARAM_INT);
             $insertIdentity->bindValue(':label_hash', $labelHash, PDO::PARAM_LOB);
+            $insertIdentity->bindValue(':namespace_hash', $sourceNamespaceHash, PDO::PARAM_LOB);
+            $insertIdentity->bindValue(':identity_hash', $sourceIdentityHash, PDO::PARAM_LOB);
+            $insertIdentity->bindValue(':stable', $stableIdentity ? 1 : 0, PDO::PARAM_INT);
             $insertIdentity->bindValue(':ciphertext', $encrypted['ciphertext'], PDO::PARAM_LOB);
             $insertIdentity->bindValue(':nonce', $encrypted['nonce'], PDO::PARAM_LOB);
             $insertIdentity->bindValue(':auth_tag', $encrypted['auth_tag'], PDO::PARAM_LOB);
@@ -361,9 +417,9 @@ final class MysqlDatasetImportRepository
         }
         $insert = $pdo->prepare('INSERT IGNORE INTO dataset_samples
             (public_id, dataset_import_id, import_identity_id, source_key_hash, file_fingerprint, split_name,
-             status, failure_code, mime_type, byte_size, width, height, temporary_name, processed_at)
+             status, failure_code, integrity_status, integrity_reason, mime_type, byte_size, width, height, temporary_name, processed_at)
             VALUES (:public_id, :import_id, :identity_id, :source_hash, :fingerprint, :split,
-             :status, :failure, :mime, :bytes, :width, :height, :temporary_name, :processed_at)');
+             :status, :failure, :integrity_status, :integrity_reason, :mime, :bytes, :width, :height, :temporary_name, :processed_at)');
         $insert->bindValue(':public_id', random_bytes(16), PDO::PARAM_LOB);
         $insert->bindValue(':import_id', $importId, PDO::PARAM_INT);
         $insert->bindValue(':identity_id', (int) $identityId, PDO::PARAM_INT);
@@ -372,6 +428,8 @@ final class MysqlDatasetImportRepository
         $insert->bindValue(':split', $split);
         $insert->bindValue(':status', is_string($error) ? 'rejected' : 'pending');
         $insert->bindValue(':failure', is_string($error) ? $error : null);
+        $insert->bindValue(':integrity_status', $overlapSplit === false ? 'clear' : 'excluded');
+        $insert->bindValue(':integrity_reason', $overlapSplit === false ? null : 'cross_dataset_image_overlap');
         $insert->bindValue(':mime', is_string($entry['mime_type'] ?? null) ? $entry['mime_type'] : null);
         $insert->bindValue(':bytes', is_int($entry['byte_size'] ?? null) ? $entry['byte_size'] : null, PDO::PARAM_INT);
         $insert->bindValue(':width', is_int($entry['width'] ?? null) ? $entry['width'] : null, PDO::PARAM_INT);
@@ -413,7 +471,9 @@ final class MysqlDatasetImportRepository
     {
         $statement = $this->connection->pdo()->prepare('SELECT di.id import_id, di.status import_status, di.source_type,
             ds.id sample_id, ds.status sample_status, ds.split_name, ds.temporary_name, ds.mime_type, ds.failure_code,
-            dii.id import_identity_id, dii.identity_id, dii.label_ciphertext, dii.label_nonce, dii.label_auth_tag
+            ds.integrity_status sample_integrity_status,
+            dii.id import_identity_id, dii.identity_id, dii.source_namespace_hash, dii.source_identity_key_hash,
+            dii.source_identity_is_stable, dii.label_ciphertext, dii.label_nonce, dii.label_auth_tag
             FROM dataset_imports di INNER JOIN dataset_samples ds ON ds.dataset_import_id = di.id
             INNER JOIN dataset_import_identities dii ON dii.id = ds.import_identity_id
             WHERE di.public_id = :import_public_id AND ds.public_id = :sample_public_id LIMIT 1'.($lock ? ' FOR UPDATE' : ''));
@@ -448,6 +508,35 @@ final class MysqlDatasetImportRepository
     {
         $decoded = is_string($value) ? json_decode($value, true) : null;
         return is_array($decoded) ? array_filter($decoded, static fn(mixed $failure): bool => is_string($failure)) : [];
+    }
+
+    /** @param array<string,mixed> $row @return array{identity_id:?int,status:string} */
+    private function sourceLink(PDO $pdo, array $row): array
+    {
+        $insert = $pdo->prepare('INSERT IGNORE INTO dataset_identity_source_links
+            (source_namespace_hash, source_identity_key_hash, status) VALUES (:namespace_hash, :identity_hash, "unresolved")');
+        $insert->bindValue(':namespace_hash', $row['source_namespace_hash'], PDO::PARAM_LOB);
+        $insert->bindValue(':identity_hash', $row['source_identity_key_hash'], PDO::PARAM_LOB);
+        $insert->execute();
+        $link = $pdo->prepare('SELECT identity_id, status FROM dataset_identity_source_links
+            WHERE source_namespace_hash = :namespace_hash AND source_identity_key_hash = :identity_hash LIMIT 1 FOR UPDATE');
+        $link->bindValue(':namespace_hash', $row['source_namespace_hash'], PDO::PARAM_LOB);
+        $link->bindValue(':identity_hash', $row['source_identity_key_hash'], PDO::PARAM_LOB);
+        $link->execute();
+        $value = $link->fetch();
+        if (!is_array($value)) throw new RuntimeException('Vinculo de fonte indisponivel.');
+        return ['identity_id' => $value['identity_id'] === null ? null : (int) $value['identity_id'], 'status' => (string) $value['status']];
+    }
+
+    /** @param array<string,mixed> $row */
+    private function excludeForIntegrity(PDO $pdo, array $row, string $reason): void
+    {
+        $pdo->prepare('UPDATE dataset_import_identities SET integrity_status = "ambiguous", integrity_reason = :reason
+            WHERE id = :id')->execute(['reason' => $reason, 'id' => (int) $row['import_identity_id']]);
+        $pdo->prepare('UPDATE dataset_samples SET status = "processed", integrity_status = "excluded", integrity_reason = :reason,
+            processed_at = UTC_TIMESTAMP(3), temporary_name = NULL WHERE id = :id')
+            ->execute(['reason' => $reason, 'id' => (int) $row['sample_id']]);
+        $this->refreshCounts($pdo, (int) $row['import_id'], false);
     }
 
     private function tokenBytes(string $token): string
