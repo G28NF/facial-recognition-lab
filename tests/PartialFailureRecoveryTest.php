@@ -21,9 +21,10 @@ $pdo->beginTransaction();
 try {
     $suffix = bin2hex(random_bytes(6));
     $name = 'Parcial '.$suffix;
+    $source = 'partial-recovery-'.$suffix;
     $manifest = [
-        ['identity'=>$name, 'source_key'=>"{$suffix}/gallery.jpg", 'fingerprint'=>hash('sha256',"{$suffix}/gallery"), 'split'=>'gallery', 'mime_type'=>'image/jpeg', 'byte_size'=>1000],
-        ['identity'=>$name, 'source_key'=>"{$suffix}/probe.jpg", 'fingerprint'=>hash('sha256',"{$suffix}/probe"), 'split'=>'probe', 'mime_type'=>'image/jpeg', 'byte_size'=>1000],
+        ['identity'=>$name, 'source_namespace'=>$source, 'source_identity_key'=>'person', 'source_key'=>"{$suffix}/gallery.jpg", 'fingerprint'=>hash('sha256',"{$suffix}/gallery"), 'split'=>'gallery', 'mime_type'=>'image/jpeg', 'byte_size'=>1000],
+        ['identity'=>$name, 'source_namespace'=>$source, 'source_identity_key'=>'person', 'source_key'=>"{$suffix}/probe.jpg", 'fingerprint'=>hash('sha256',"{$suffix}/probe"), 'split'=>'probe', 'mime_type'=>'image/jpeg', 'byte_size'=>1000],
     ];
     $job = $imports->start('Parcial '.$suffix, 'folder', $manifest, []);
     $items = $imports->samples($job['import_token'], ['pending'], 0, 10)['items'];
@@ -41,7 +42,7 @@ try {
     $empty = $imports->store($empty['import_token'], $sample['sample_token'], null, null, ['A'=>'no_face', 'B'=>'biometric_failure']);
     $assert($empty['rejected_samples'] === 1 && $empty['linked_identities'] === 0, 'Gallery sem embedding criou identidade ou ficou processada.');
 
-    $retry = $imports->start('Retomada '.$suffix, 'folder', [['identity'=>$name, 'source_key'=>"{$suffix}/retry.jpg", 'fingerprint'=>hash('sha256',"{$suffix}/retry"), 'split'=>'probe', 'mime_type'=>'image/jpeg', 'byte_size'=>1000]], []);
+    $retry = $imports->start('Retomada '.$suffix, 'folder', [['identity'=>$name, 'source_namespace'=>$source, 'source_identity_key'=>'person', 'source_key'=>"{$suffix}/retry.jpg", 'fingerprint'=>hash('sha256',"{$suffix}/retry"), 'split'=>'probe', 'mime_type'=>'image/jpeg', 'byte_size'=>1000]], []);
     $sample = $imports->samples($retry['import_token'], ['pending'], 0, 1)['items'][0];
     $retry = $imports->store($retry['import_token'], $sample['sample_token'], $vectors['faceapi-recognition'], null, ['B'=>'http_failure']);
     $assert($retry['pending_samples'] === 1, 'Falha HTTP temporaria encerrou amostra parcial.');
