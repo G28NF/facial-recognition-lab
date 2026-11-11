@@ -132,7 +132,7 @@ code { color: #78d7ca; }
 .import-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .9rem; }
 .import-grid label { display: grid; gap: .35rem; margin: 0; }
 .import-grid small, .source-card small { color: var(--rif-muted); font-size: .75rem; line-height: 1.35; }
-.import-config-card, .precision-panel, .lifecycle-panel, .person-detail, .engine-card, .chart-grid article {
+.import-config-card, .precision-panel, .lifecycle-panel, .person-detail, .engine-card {
     border: 1px solid var(--rif-border);
     border-radius: 3px;
     background: var(--rif-control);
@@ -198,13 +198,9 @@ footer { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--rif-
 .precision-controls label { min-width: 200px; margin: 0; }
 .precision-audit { margin-top: 1rem; color: var(--rif-muted); }
 .precision-audit summary { cursor: pointer; }
-.chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 1.25rem 0; }
-.chart-grid article { min-width: 0; padding: 1rem; }
-.chart-grid canvas { width: 100%; height: auto; border: 1px solid var(--rif-border); background: #090b0f; }
 .history-heading { margin-top: 1.5rem; }
 .session-select { background: var(--rif-blue); }
 
-@media (max-width: 900px) { .chart-grid { grid-template-columns: 1fr; } }
 @media (max-width: 760px) {
     .container { width: min(100% - 2rem, 1440px); padding: 1.25rem 0; }
     .workspace, .split-guide, .import-source-grid, .person-edit-row { grid-template-columns: 1fr; }
@@ -236,10 +232,8 @@ footer { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--rif-
 .rfv2-tabs .nav-link:hover, .rfv2-tabs .nav-link:focus-visible { border-color: var(--rif-border); color: var(--rif-text); }
 .rfv2-tabs .nav-link.active { border-color: var(--rif-border) var(--rif-border) var(--rif-panel); background: var(--rif-panel); color: var(--rif-text); }
 .rfv2-tab-content { min-height: 520px; }
-.recognition-layout, .registration-layout { display: grid; gap: 1rem; align-items: start; }
-.recognition-layout { grid-template-columns: minmax(0, 1fr); }
-.registration-layout { grid-template-columns: minmax(280px, .65fr) minmax(0, 1.35fr); }
-.registration-layout .registration-panel { width: auto; }
+.recognition-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, .65fr); gap: 1rem; align-items: start; }
+.recognition-layout .registration-panel { width: auto; }
 .camera-panel .video-wrap { width: min(100%, 780px); aspect-ratio: 16 / 9; }
 .compact-heading { margin-bottom: .25rem; }
 .recognition-note { margin: 1rem 0 0; }
@@ -261,7 +255,7 @@ footer { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--rif-
 .rfv2-accordion .session-controls label { flex: 1 1 240px; }
 
 @media (max-width: 980px) {
-    .recognition-layout, .registration-layout { grid-template-columns: 1fr; }
+    .recognition-layout { grid-template-columns: 1fr; }
     .camera-panel .video-wrap { max-width: 780px; }
 }
 @media (max-width: 620px) {
