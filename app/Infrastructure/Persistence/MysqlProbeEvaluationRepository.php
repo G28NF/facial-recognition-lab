@@ -22,8 +22,8 @@ final class MysqlProbeEvaluationRepository
         $sql = 'SELECT LOWER(HEX(di.public_id)) import_token, d.name dataset_name, COUNT(DISTINCT ds.id) eligible_samples
             FROM dataset_imports di
             INNER JOIN datasets d ON d.id = di.dataset_id
-            INNER JOIN dataset_samples ds ON ds.dataset_import_id = di.id AND ds.status = "processed" AND ds.split_name = "probe"
-            INNER JOIN dataset_import_identities dii ON dii.id = ds.import_identity_id
+            INNER JOIN dataset_samples ds ON ds.dataset_import_id = di.id AND ds.status = "processed" AND ds.split_name = "probe" AND ds.integrity_status = "clear"
+            INNER JOIN dataset_import_identities dii ON dii.id = ds.import_identity_id AND dii.integrity_status = "clear"
             INNER JOIN identities i ON i.id = dii.identity_id AND i.active = 1
             GROUP BY di.id, di.public_id, d.name ORDER BY di.id DESC LIMIT 20';
         $rows = $this->connection->pdo()->query($sql)->fetchAll();
@@ -74,6 +74,7 @@ final class MysqlProbeEvaluationRepository
             LEFT JOIN dataset_sample_embeddings sf ON sf.dataset_sample_id = ds.id AND sf.usage_type = "probe"
                 AND sf.biometric_model_id = (SELECT id FROM biometric_models WHERE model_key = "opencv-sface")
             WHERE ds.dataset_import_id = :import_id AND ds.status = "processed" AND ds.split_name = "probe"
+              AND ds.integrity_status = "clear" AND dii.integrity_status = "clear"
             ORDER BY ds.id LIMIT :limit';
         $statement = $this->connection->pdo()->prepare($sql);
         $statement->bindValue(':import_id', (int) $evaluation['dataset_import_id'], PDO::PARAM_INT);
@@ -230,7 +231,8 @@ final class MysqlProbeEvaluationRepository
         $statement = $pdo->prepare('SELECT COUNT(DISTINCT ds.id) FROM dataset_samples ds
             INNER JOIN dataset_import_identities dii ON dii.id = ds.import_identity_id
             INNER JOIN identities i ON i.id = dii.identity_id AND i.active = 1
-            WHERE ds.dataset_import_id = :import_id AND ds.status = "processed" AND ds.split_name = "probe"');
+            WHERE ds.dataset_import_id = :import_id AND ds.status = "processed" AND ds.split_name = "probe"
+              AND ds.integrity_status = "clear" AND dii.integrity_status = "clear"');
         $statement->execute(['import_id' => $importId]);
         return (int) $statement->fetchColumn();
     }
