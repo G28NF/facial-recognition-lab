@@ -35,7 +35,7 @@ $ready = $infrastructure['database'] === 'disponivel';
     <nav class="rfv2-navigation" aria-label="Áreas do Reconhecimento Facial">
         <div class="nav nav-tabs rfv2-tabs" id="moduleTabs" role="tablist">
             <button class="nav-link active" id="recognition-tab" data-bs-toggle="tab" data-bs-target="#recognition-pane" type="button" role="tab" aria-controls="recognition-pane" aria-selected="true">Reconhecimento</button>
-            <button class="nav-link" id="registration-tab" data-bs-toggle="tab" data-bs-target="#registration-pane" type="button" role="tab" aria-controls="registration-pane" aria-selected="false">Cadastro</button>
+            <button class="nav-link" id="users-tab" data-bs-toggle="tab" data-bs-target="#users-pane" type="button" role="tab" aria-controls="users-pane" aria-selected="false">Usuários</button>
             <button class="nav-link" id="import-tab" data-bs-toggle="tab" data-bs-target="#import-pane" type="button" role="tab" aria-controls="import-pane" aria-selected="false">Importação</button>
             <button class="nav-link" id="metrics-tab" data-bs-toggle="tab" data-bs-target="#metrics-pane" type="button" role="tab" aria-controls="metrics-pane" aria-selected="false">Métricas</button>
         </div>
@@ -55,7 +55,17 @@ $ready = $infrastructure['database'] === 'disponivel';
                     </div>
                     <p id="status" class="status" aria-live="polite">Preparando aplicação...</p>
                 </section>
+                <aside class="panel registration-panel">
+                    <h2>Cadastrar pessoa</h2>
+                    <p>Uma captura gera embeddings separados Face API.js e SFace.</p>
+                    <label for="personName">Nome</label>
+                    <input id="personName" maxlength="120" autocomplete="name">
+                    <label class="consent"><input id="consent" type="checkbox"> Confirmo o cadastro biométrico local.</label>
+                    <button id="registerPerson" type="button" disabled>Cadastrar</button>
+                    <button id="logout" type="button" class="link-button">Sair</button>
+                </aside>
             </div>
+
             <section class="panel continuous-panel" aria-labelledby="continuous-title">
                 <div class="section-heading">
                     <div><p class="eyebrow">Processamento contínuo</p><h2 id="continuous-title">Sessões de reconhecimento</h2><p>As arquiteturas A e B processam o mesmo quadro quando um rosto está presente.</p></div>
@@ -92,43 +102,30 @@ $ready = $infrastructure['database'] === 'disponivel';
             </section>
         </section>
 
-        <section class="tab-pane fade" id="registration-pane" role="tabpanel" aria-labelledby="registration-tab" tabindex="0">
-            <div class="registration-layout">
-                <aside class="panel registration-panel">
-                    <h2>Cadastrar pessoa</h2>
-                    <p>Uma captura gera embeddings separados Face API.js e SFace.</p>
-                    <label for="personName">Nome</label>
-                    <input id="personName" maxlength="120" autocomplete="name">
-                    <label class="consent"><input id="consent" type="checkbox"> Confirmo o cadastro biométrico local.</label>
-                    <button id="registerPerson" type="button" disabled>Cadastrar</button>
-                    <button id="logout" type="button" class="link-button">Sair</button>
-                </aside>
-
-                <section class="panel people-panel">
-                    <div class="section-heading"><div><h2>Pessoas cadastradas</h2><p>Consulte modelos e gerencie amostras sem apagar o histórico experimental.</p></div><span id="identityCount">0</span></div>
-                    <label class="search-field" for="peopleSearch">Pesquisar por nome<input id="peopleSearch" type="search" placeholder="Digite parte do nome" autocomplete="off"></label>
-                    <p id="peopleStatus" class="status" aria-live="polite"></p>
-                    <div class="people-pagination" aria-label="Paginação de pessoas">
-                        <label for="peoplePageSize">Por página<select id="peoplePageSize"><option value="10">10</option><option value="20" selected>20</option><option value="50">50</option><option value="100">100</option></select></label>
-                        <span id="peoplePageInfo">Carregando pessoas...</span>
-                        <div><button id="peoplePreviousTop" type="button" class="secondary">Anterior</button><button id="peopleNextTop" type="button" class="secondary">Próxima</button></div>
-                    </div>
-                    <div id="peopleTableAnchor" class="table-wrap"><table><thead><tr><th>ID</th><th>Nome</th><th>Modelos disponíveis</th><th>Cadastro</th><th>Ações</th></tr></thead><tbody id="peopleBody"></tbody></table></div>
-                    <div class="people-pagination people-pagination-bottom" aria-label="Paginação de pessoas">
-                        <span id="peoplePageInfoBottom"></span>
-                        <div><button id="peoplePreviousBottom" type="button" class="secondary">Anterior</button><button id="peopleNextBottom" type="button" class="secondary">Próxima</button></div>
-                    </div>
-                    <article id="personDetail" class="person-detail" hidden aria-live="polite">
-                        <div class="section-heading"><div><p class="eyebrow">Identidade selecionada</p><h3 id="personDetailTitle"></h3></div><button id="closePersonDetail" type="button" class="secondary">Fechar</button></div>
-                        <p id="personImpact" class="method-note"></p>
-                        <div class="person-edit-row"><label for="personEditName">Nome<input id="personEditName" maxlength="120"></label><button id="renamePerson" type="button">Salvar nome</button><button id="deletePerson" type="button" class="danger">Excluir pessoa</button></div>
-                        <p id="personStatus" class="status" aria-live="polite"></p>
-                        <h4>Amostras faciais</h4>
-                        <div class="table-wrap"><table><thead><tr><th>Modelo</th><th>Amostra</th><th>Origem</th><th>Estado</th><th>Ação</th></tr></thead><tbody id="personSamplesBody"></tbody></table></div>
-                    </article>
-                </section>
-            </div>
-        </section>
+        <section class="tab-pane fade" id="users-pane" role="tabpanel" aria-labelledby="users-tab" tabindex="0">
+            <section class="panel people-panel">
+                <div class="section-heading"><div><h2>Pessoas cadastradas</h2><p>Consulte modelos e gerencie amostras sem apagar o histórico experimental.</p></div><span id="identityCount">0</span></div>
+                <label class="search-field" for="peopleSearch">Pesquisar por nome<input id="peopleSearch" type="search" placeholder="Digite parte do nome" autocomplete="off"></label>
+                <p id="peopleStatus" class="status" aria-live="polite"></p>
+                <div class="people-pagination" aria-label="Paginação de pessoas">
+                    <label for="peoplePageSize">Por página<select id="peoplePageSize"><option value="10">10</option><option value="20" selected>20</option><option value="50">50</option><option value="100">100</option></select></label>
+                    <span id="peoplePageInfo">Carregando pessoas...</span>
+                    <div><button id="peoplePreviousTop" type="button" class="secondary">Anterior</button><button id="peopleNextTop" type="button" class="secondary">Próxima</button></div>
+                </div>
+                <div id="peopleTableAnchor" class="table-wrap"><table><thead><tr><th>ID</th><th>Nome</th><th>Amostras por modelo</th><th>Cadastro</th><th>Ações</th></tr></thead><tbody id="peopleBody"></tbody></table></div>
+                <div class="people-pagination people-pagination-bottom" aria-label="Paginação de pessoas">
+                    <span id="peoplePageInfoBottom"></span>
+                    <div><button id="peoplePreviousBottom" type="button" class="secondary">Anterior</button><button id="peopleNextBottom" type="button" class="secondary">Próxima</button></div>
+                </div>
+                <article id="personDetail" class="person-detail" hidden aria-live="polite">
+                    <div class="section-heading"><div><p class="eyebrow">Identidade selecionada</p><h3 id="personDetailTitle"></h3></div><button id="closePersonDetail" type="button" class="secondary">Fechar</button></div>
+                    <p id="personImpact" class="method-note"></p>
+                    <div class="person-edit-row"><label for="personEditName">Nome<input id="personEditName" maxlength="120"></label><button id="renamePerson" type="button">Salvar nome</button><button id="deletePerson" type="button" class="danger">Excluir pessoa</button></div>
+                    <p id="personStatus" class="status" aria-live="polite"></p>
+                    <h4>Amostras faciais</h4>
+                    <div class="table-wrap"><table><thead><tr><th>Modelo</th><th>Amostra</th><th>Origem</th><th>Estado</th><th>Ação</th></tr></thead><tbody id="personSamplesBody"></tbody></table></div>
+                </article>
+            </section>
         </section>
 
         <section class="tab-pane fade" id="import-pane" role="tabpanel" aria-labelledby="import-tab" tabindex="0">
@@ -213,7 +210,6 @@ $ready = $infrastructure['database'] === 'disponivel';
                     <p id="pairedPrecision" class="method-note"></p>
                     <details class="precision-audit"><summary>Resultados individuais recentes da avaliação</summary><div class="table-wrap"><table><thead><tr><th>Probe</th><th>Arquitetura</th><th>Esperada</th><th>Prevista</th><th>Resultado</th><th>Distância²</th><th>Separação dos candidatos</th><th>Tempo 1:N</th><th>Falha</th></tr></thead><tbody id="precisionResultsBody"></tbody></table></div></details>
                 </section>
-                <div class="chart-grid"><article><h3>Etapas médias</h3><canvas id="stagesChart" width="700" height="280"></canvas></article></div>
                 <div class="section-heading history-heading"><h3>Histórico de sessões</h3><div class="pagination"><button id="previousSessions" type="button" class="secondary">Anterior</button><span id="sessionsPage">Página 1</span><button id="nextSessions" type="button" class="secondary">Próxima</button></div></div>
                 <div class="table-wrap"><table><thead><tr><th>Início</th><th>Estado</th><th>Arquiteturas</th><th>Intervalo</th><th>Quadros</th><th>Perdidos</th><th>Eventos</th><th>Falhas</th><th>Ações</th></tr></thead><tbody id="sessionsBody"></tbody></table></div>
             </section>
