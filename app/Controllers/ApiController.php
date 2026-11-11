@@ -11,6 +11,7 @@ use App\Services\PythonFaceClient;
 use App\Services\RecognitionService;
 use App\Services\RegistrationService;
 use App\Services\DatasetImportService;
+use App\Services\DatasetIntegrityService;
 use App\Services\ProbeEvaluationService;
 use DomainException;
 use InvalidArgumentException;
@@ -29,6 +30,7 @@ final class ApiController
         private readonly ContinuousRecognitionService $continuous,
         private readonly BenchmarkDashboardService $dashboard,
         private readonly DatasetImportService $imports,
+        private readonly DatasetIntegrityService $datasetIntegrity,
         private readonly ProbeEvaluationService $probeEvaluations,
         /** @var array{default_interval_ms:int,minimum_interval_ms:int,maximum_interval_ms:int} */
         private readonly array $videoConfig
@@ -84,6 +86,7 @@ final class ApiController
                 'import-pause' => $this->importPause(),
                 'import-resume' => $this->importResume(),
                 'import-cancel' => $this->importCancel(),
+                'import-integrity-review' => $this->importIntegrityReview(),
                 default => throw new DomainException('Endpoint nao encontrado.', 404),
             };
             $this->json($result, $action === 'register' ? 201 : 200);
@@ -525,6 +528,14 @@ final class ApiController
     {
         $input = $this->protectedInput(1024);
         return $this->imports->cancel($this->arrayToken($input, 'import_token'));
+    }
+
+    /** @return array<string,mixed> */
+    private function importIntegrityReview(): array
+    {
+        $input = $this->protectedInput(1024);
+        $maximum = array_key_exists('maximum_identities', $input) ? $this->positiveInt($input['maximum_identities']) : 50;
+        return $this->datasetIntegrity->reviewPossibleDuplicates($maximum);
     }
 
     private function importImage(): void
