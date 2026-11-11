@@ -32,11 +32,13 @@ foreach (['faceapi-recognition', 'opencv-sface'] as $modelKey) {
 if (count($vectors) !== 2) throw new RuntimeException('A identidade autorizada precisa dos dois modelos biometricos.');
 
 $datasetName = 'Teste importacao transacional '.bin2hex(random_bytes(6));
+$sourceNamespace = 'integration-test-'.$datasetName;
+$sourceIdentityKey = 'existing-person';
 $manifest = [
-    ['identity' => $identityName, 'source_key' => 'lfw/person/gallery.jpg', 'fingerprint' => str_repeat('11', 32), 'split' => 'gallery', 'mime_type' => 'image/jpeg', 'byte_size' => 1000],
-    ['identity' => $identityName, 'source_key' => 'lfw/person/probe.jpg', 'fingerprint' => str_repeat('22', 32), 'split' => 'probe', 'mime_type' => 'image/jpeg', 'byte_size' => 1000],
-    ['identity' => $identityName, 'source_key' => 'lfw/person/invalid.txt', 'fingerprint' => str_repeat('33', 32), 'split' => 'probe', 'mime_type' => 'text/plain', 'byte_size' => 10, 'error' => 'unsupported_format'],
-    ['identity' => $identityName, 'source_key' => 'lfw/person/repeated.jpg', 'fingerprint' => str_repeat('22', 32), 'split' => 'gallery', 'mime_type' => 'image/jpeg', 'byte_size' => 1000],
+    ['identity' => $identityName, 'source_namespace' => $sourceNamespace, 'source_identity_key' => $sourceIdentityKey, 'source_key' => 'lfw/person/gallery.jpg', 'fingerprint' => str_repeat('11', 32), 'split' => 'gallery', 'mime_type' => 'image/jpeg', 'byte_size' => 1000],
+    ['identity' => $identityName, 'source_namespace' => $sourceNamespace, 'source_identity_key' => $sourceIdentityKey, 'source_key' => 'lfw/person/probe.jpg', 'fingerprint' => str_repeat('22', 32), 'split' => 'probe', 'mime_type' => 'image/jpeg', 'byte_size' => 1000],
+    ['identity' => $identityName, 'source_namespace' => $sourceNamespace, 'source_identity_key' => $sourceIdentityKey, 'source_key' => 'lfw/person/invalid.txt', 'fingerprint' => str_repeat('33', 32), 'split' => 'probe', 'mime_type' => 'text/plain', 'byte_size' => 10, 'error' => 'unsupported_format'],
+    ['identity' => $identityName, 'source_namespace' => $sourceNamespace, 'source_identity_key' => $sourceIdentityKey, 'source_key' => 'lfw/person/repeated.jpg', 'fingerprint' => str_repeat('22', 32), 'split' => 'gallery', 'mime_type' => 'image/jpeg', 'byte_size' => 1000],
 ];
 
 $pdo->beginTransaction();
