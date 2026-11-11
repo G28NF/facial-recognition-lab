@@ -47,10 +47,18 @@ final class DatasetImportService
             $error = null;
             if (!is_string($mime) || !isset(self::MIME_EXTENSIONS[$mime])) $error = 'unsupported_format';
             elseif ($bytes === false || $bytes < 1 || $bytes > (int) $this->config['maximum_image_bytes']) $error = 'image_too_large';
+            $sourceNamespace = $entry['source_namespace'] ?? null;
+            $sourceIdentityKey = $entry['source_identity_key'] ?? null;
+            if (($sourceNamespace === null) !== ($sourceIdentityKey === null)
+                || ($sourceNamespace !== null && (!is_string($sourceNamespace) || !is_string($sourceIdentityKey)
+                    || $sourceNamespace === '' || $sourceIdentityKey === '' || mb_strlen($sourceNamespace) > 200 || mb_strlen($sourceIdentityKey) > 200))) {
+                throw new InvalidArgumentException('Identificador estavel da fonte invalido.');
+            }
             $normalized[] = [
                 'identity' => $identity, 'source_key' => $sourceKey, 'fingerprint' => $fingerprint,
                 'split' => $perIdentity[$identity] <= $galleryImages ? 'gallery' : 'probe',
                 'mime_type' => is_string($mime) ? $mime : null, 'byte_size' => $bytes === false ? null : $bytes,
+                'source_namespace' => $sourceNamespace, 'source_identity_key' => $sourceIdentityKey,
                 'error' => is_string($entry['error'] ?? null) && in_array($entry['error'], self::FAILURE_CODES, true) ? $entry['error'] : $error,
             ];
         }
