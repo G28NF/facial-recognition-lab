@@ -225,6 +225,7 @@ $ready = $infrastructure['database'] === 'disponivel';
 <?php endif; ?>
 <script src="assets/js/scheduler.js" defer></script>
 <script src="assets/js/metric-finalizer.js?v=<?= (int) filemtime(dirname(__DIR__, 2).'/public/assets/js/metric-finalizer.js') ?>" defer></script>
+<script src="assets/js/upload-request.js?v=<?= (int) filemtime(dirname(__DIR__, 2).'/public/assets/js/upload-request.js') ?>" defer></script>
 <script src="assets/js/app.js?v=<?= (int) filemtime(dirname(__DIR__, 2).'/public/assets/js/app.js') ?>" defer></script>
 <?php if ($authenticated): ?>
     <script src="assets/js/dashboard.js?v=<?= (int) filemtime(dirname(__DIR__, 2).'/public/assets/js/dashboard.js') ?>" defer></script>

@@ -27,7 +27,7 @@ final class BenchmarkDashboardService
                 'excluded_results' => ['error'],
                 'percentile' => 'nearest-rank P95',
                 'standard_deviation' => 'population',
-                'note' => 'pipeline_total_ms mede processamento interno; http_roundtrip_ms e end_to_end_ms sao individuais por arquitetura. Metricas comparativas historicas nao entram no painel.',
+                'note' => 'browser_upload_ms mede somente o envio observado pelo navegador e pode estar ausente; pipeline_total_ms mede processamento interno; end_to_end_ms e individual por arquitetura. Metricas comparativas historicas nao entram no painel.',
                 'precision_note' => 'Eventos periodicos medem desempenho operacional; nao sao amostras independentes de precisao.',
             ],
             'overall' => $this->statisticsFor(null),
@@ -73,7 +73,7 @@ final class BenchmarkDashboardService
             'candidate_selection_ms', 'matched_name_query_ms', 'matched_name_decrypt_ms',
             'comparison_overhead_ms', 'comparison_total_ms',
             'facial_processing_ms', 'php_python_roundtrip_ms', 'php_python_overhead_ms',
-            'image_encode_ms', 'http_roundtrip_ms', 'end_to_end_ms', 'request_payload_bytes',
+            'image_encode_ms', 'browser_upload_ms', 'end_to_end_ms', 'request_payload_bytes',
         ];
     }
 

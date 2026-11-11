@@ -15,6 +15,8 @@ check(!script.includes('const detectPresence = async () =>'), 'A presenca Face A
 check(script.includes('faceapi_embedding: face.embedding'), 'A nao envia somente o embedding para sua requisicao.');
 check(script.includes('image: encoded.image'), 'B nao envia a imagem para sua requisicao.');
 check(script.includes('http_roundtrip_ms: performance.now() - communicationStarted'), 'Round-trip HTTP individual nao esta instrumentado.');
+check(script.includes('browser_upload_ms: submission.uploadMs'), 'Upload observado pelo navegador nao esta associado a cada arquitetura.');
+check(!script.includes('browser_upload_ms: submission.uploadMs ?? 0'), 'Ausencia de upload nao pode ser convertida em zero.');
 check(script.includes('end_to_end_ms: performance.now() - totalStarted'), 'Latencia ponta a ponta individual nao esta instrumentada.');
 check(script.includes('request_payload_bytes: payloadBytes(body)'), 'Bytes enviados nao sao registrados individualmente.');
 check(script.includes("faceApiFailure('no_face'"), 'Ausencia de rosto nao possui classificacao explicita.');
@@ -22,6 +24,7 @@ check(script.includes("faceApiFailure('multiple_faces'"), 'Multiplos rostos nao 
 check(script.includes("error?.rfv2FailureCode") && script.includes("'technical_failure'"), 'Falhas tecnicas Face API.js nao sao classificadas separadamente.');
 check(script.includes('faceapi_failure: face.failure ?? null'), 'Classificacao Face API.js nao e enviada ao servidor.');
 check(script.includes('metricFinalizer.submit({session_token: session.token'), 'Falhas de finalizacao ainda podem ser ignoradas silenciosamente.');
+check(script.includes('RFV2UploadRequest.sendJson'), 'Endpoints comparativos nao usam o transporte com observacao de upload.');
 check(!script.includes("try { await request('session-finalize'"), 'session-finalize ainda descarta erros sem controlar pendencias.');
 check(script.includes("sequence % 2 === 1 ? ['A', 'B'] : ['B', 'A']"), 'A ordem A/B nao alterna por rodada.');
 check(script.includes('if (!faceApiPipelineWarmed || !pythonPipelineWarmed) {'), 'A coleta pode iniciar sem o aquecimento confirmado de A e B.');

@@ -8,21 +8,21 @@ let calls = [];
 let reports = [];
 let failure = true;
 const reporter = new globalThis.RFV2MetricFinalizer(async payload => { reports.push(payload); });
-const context = vm.createContext({httpFailureReporter: reporter, request: async (route) => {
+const context = vm.createContext({httpFailureReporter: reporter, sessionRequest: async (route) => {
     calls.push(route);
     if (route.endsWith('-a') && failure) throw new Error('response lost');
-    return {architecture: route.endsWith('-a') ? 'A' : 'B', status:'unknown', metrics:{}};
+    return {data: {architecture: route.endsWith('-a') ? 'A' : 'B', status:'unknown', metrics:{}}, uploadMs: 3};
 }});
 vm.runInContext(source+'\nglobalThis.submit = submitArchitecture;', context);
 const body = JSON.stringify({session_token:'0123456789abcdef0123456789abcdef',frame_sequence:7});
 await assert.rejects(context.submit('A', body), error => error.httpFailure === true);
-assert.equal((await context.submit('B', body)).architecture, 'B');
+assert.equal((await context.submit('B', body)).data.architecture, 'B');
 await reporter.retryPending();
 assert.equal(reports.length,1);
 assert.deepEqual(calls,['session-frame-a','session-frame-b'], 'Recovery must not resubmit recognition');
 assert.equal(reports[0].frame_sequence,7);
 failure = false;
-assert.equal((await context.submit('A',body)).status,'unknown');
+assert.equal((await context.submit('A',body)).data.status,'unknown');
 const importScript = readFileSync(new URL('../public/assets/js/import.js', import.meta.url),'utf8');
 const prepare = importScript.slice(importScript.indexOf('    const prepareImage ='),importScript.indexOf('    const processPending ='));
 let closed = false;

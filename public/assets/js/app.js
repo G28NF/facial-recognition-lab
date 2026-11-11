@@ -27,6 +27,11 @@
         if (!response.ok) throw new Error(data.error || 'Falha de comunicação.');
         return data;
     };
+    const sessionRequest = async (action, body) => {
+        const headers = {'Content-Type': 'application/json'};
+        if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
+        return globalThis.RFV2UploadRequest.sendJson(`?route=api/${action}`, {headers, body});
+    };
 
     const metricFinalizer = new globalThis.RFV2MetricFinalizer(payload => {
         const controller = new AbortController();
@@ -56,9 +61,9 @@
     };
     const submitArchitecture = async (architecture, body) => {
         try {
-            const data = await request(`session-frame-${architecture.toLowerCase()}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body});
+            const {data, uploadMs} = await sessionRequest(`session-frame-${architecture.toLowerCase()}`, body);
             if (data.architecture !== architecture || !['recognized', 'unknown', 'inconclusive', 'error'].includes(data.status) || !data.metrics) throw new Error('Resposta inválida.');
-            return data;
+            return {data, uploadMs};
         } catch (error) {
             const payload = JSON.parse(body);
             await httpFailureReporter.submit({session_token: payload.session_token, frame_sequence: payload.frame_sequence, architecture});
@@ -396,7 +401,7 @@
         ['Round-trip PHP–Python', data.metrics?.php_python_roundtrip_ms],
         ['Overhead PHP–Python', data.metrics?.php_python_overhead_ms],
         ['Codificação JPEG', data.metrics?.image_encode_ms],
-        ['Comunicação HTTP', data.metrics?.http_roundtrip_ms],
+        ['Envio observado pelo navegador', data.metrics?.browser_upload_ms],
         ['Bytes enviados', data.metrics?.request_payload_bytes, 'integer']
     ];
 
@@ -592,8 +597,9 @@
                 const body = JSON.stringify({session_token: session.token, frame_sequence: sequence, missed_intervals: missed, faceapi_embedding: face.embedding, faceapi_failure: face.failure ?? null, faceapi_metrics: face.metrics, monitoring_metrics: metricsForRound});
                 const communicationStarted = performance.now();
                 sequenceSubmissionStarted = true;
-                const data = await submitArchitecture('A', body);
-                const clientMetrics = {http_roundtrip_ms: performance.now() - communicationStarted, end_to_end_ms: performance.now() - totalStarted, request_payload_bytes: payloadBytes(body)};
+                const submission = await submitArchitecture('A', body);
+                const data = submission.data;
+                const clientMetrics = {browser_upload_ms: submission.uploadMs, http_roundtrip_ms: performance.now() - communicationStarted, end_to_end_ms: performance.now() - totalStarted, request_payload_bytes: payloadBytes(body)};
                 Object.assign(data.metrics, clientMetrics);
                 await metricFinalizer.submit({session_token: session.token, frame_sequence: sequence, architecture: 'A', metrics: clientMetrics});
                 return data;
@@ -604,8 +610,9 @@
                 const body = JSON.stringify({session_token: session.token, frame_sequence: sequence, missed_intervals: missed, image: encoded.image, monitoring_metrics: metricsForRound});
                 const communicationStarted = performance.now();
                 sequenceSubmissionStarted = true;
-                const data = await submitArchitecture('B', body);
-                const clientMetrics = {image_encode_ms: encoded.imageEncodeMs, http_roundtrip_ms: performance.now() - communicationStarted, end_to_end_ms: performance.now() - totalStarted, request_payload_bytes: payloadBytes(body)};
+                const submission = await submitArchitecture('B', body);
+                const data = submission.data;
+                const clientMetrics = {image_encode_ms: encoded.imageEncodeMs, browser_upload_ms: submission.uploadMs, http_roundtrip_ms: performance.now() - communicationStarted, end_to_end_ms: performance.now() - totalStarted, request_payload_bytes: payloadBytes(body)};
                 Object.assign(data.metrics, clientMetrics);
                 await metricFinalizer.submit({session_token: session.token, frame_sequence: sequence, architecture: 'B', metrics: clientMetrics});
                 return data;
