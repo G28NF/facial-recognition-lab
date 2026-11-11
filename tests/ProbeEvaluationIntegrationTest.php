@@ -33,15 +33,25 @@ try {
     $idOne = $identities->register("Probe esperado {$suffix}", ['faceapi-recognition' => $one, 'opencv-sface' => $one], ['faceapi-recognition' => .36, 'opencv-sface' => 1.3225]);
     $identities->register("Probe incorreto {$suffix}", ['faceapi-recognition' => $two, 'opencv-sface' => $two], ['faceapi-recognition' => .36, 'opencv-sface' => 1.3225]);
     $dataset = 'Teste avaliacao probe '.$suffix;
+$sourceNamespace = 'probe-evaluation-'.$suffix;
+$sourceIdentityKey = 'expected';
     $manifest = [];
     foreach (['correct', 'incorrect', 'unknown', 'technical'] as $position => $name) {
         $manifest[] = [
             'identity' => "Probe esperado {$suffix}", 'source_key' => "{$suffix}/{$name}.jpg",
             'fingerprint' => hash('sha256', "{$suffix}/{$name}"), 'split' => 'probe',
             'mime_type' => 'image/jpeg', 'byte_size' => 1000,
+            'source_namespace' => $sourceNamespace, 'source_identity_key' => $sourceIdentityKey,
         ];
     }
     $job = $imports->start($dataset, 'folder', $manifest, ['maximum_people' => 1, 'maximum_images_per_person' => 4, 'gallery_images_per_person' => 1]);
+    $link = $pdo->prepare('INSERT INTO dataset_identity_source_links
+        (source_namespace_hash, source_identity_key_hash, identity_id, status)
+        VALUES (:namespace_hash, :identity_hash, :identity_id, "resolved")');
+    $link->bindValue(':namespace_hash', $cipher->lookupHash('source:'.$sourceNamespace), PDO::PARAM_LOB);
+    $link->bindValue(':identity_hash', $cipher->lookupHash('identity:'.$sourceIdentityKey), PDO::PARAM_LOB);
+    $link->bindValue(':identity_id', $idOne, PDO::PARAM_INT);
+    $link->execute();
     $samples = $imports->samples($job['import_token'], ['pending'], 0, 10)['items'];
     foreach ($samples as $index => $sample) {
         $vector = [$one, $two, $unknown, $invalid][$index];
