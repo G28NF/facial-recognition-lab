@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import threading
 import time
 
 import cv2
@@ -20,6 +21,7 @@ class FaceService:
             raise RuntimeError("Modelos YuNet/SFace ausentes.")
         self.detector = cv2.FaceDetectorYN.create(str(YUNET_MODEL), "", (320, 320), 0.9, 0.3, 5000)
         self.recognizer = cv2.FaceRecognizerSF.create(str(SFACE_MODEL), "")
+        self._processing_lock = threading.Lock()
 
     def process_data_url(self, data_url: str) -> tuple[list[float], dict[str, float | int]]:
         started = time.perf_counter()
@@ -42,19 +44,22 @@ class FaceService:
         if width < 160 or height < 120 or width > 4096 or height > 4096:
             raise FaceProcessingError("Dimensoes da imagem invalidas.")
 
-        self.detector.setInputSize((width, height))
-        detection_started = time.perf_counter()
-        _, faces = self.detector.detect(image)
-        detection_ms = (time.perf_counter() - detection_started) * 1000
-        count = 0 if faces is None else len(faces)
-        if count == 0:
-            raise FaceProcessingError("Nenhum rosto foi detectado.")
-        if count > 1:
-            raise FaceProcessingError("Mais de um rosto foi detectado.")
+        # YuNet changes input size on the detector instance and OpenCV does not
+        # guarantee concurrent use of the detector/recognizer objects.
+        with self._processing_lock:
+            self.detector.setInputSize((width, height))
+            detection_started = time.perf_counter()
+            _, faces = self.detector.detect(image)
+            detection_ms = (time.perf_counter() - detection_started) * 1000
+            count = 0 if faces is None else len(faces)
+            if count == 0:
+                raise FaceProcessingError("Nenhum rosto foi detectado.")
+            if count > 1:
+                raise FaceProcessingError("Mais de um rosto foi detectado.")
 
-        extraction_started = time.perf_counter()
-        aligned = self.recognizer.alignCrop(image, faces[0])
-        feature_array = self.recognizer.feature(aligned).flatten().astype(float)
+            extraction_started = time.perf_counter()
+            aligned = self.recognizer.alignCrop(image, faces[0])
+            feature_array = self.recognizer.feature(aligned).flatten().astype(float)
         norm = float(np.linalg.norm(feature_array))
         if not np.isfinite(norm) or norm <= 0.0:
             raise FaceProcessingError("O SFace produziu um embedding invalido.")

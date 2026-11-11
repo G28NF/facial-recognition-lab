@@ -49,23 +49,36 @@ final class PdoConnection
     {
         $pdo = $this->pdo();
         $owner = !$pdo->inTransaction();
-        if ($owner) {
-            $pdo->beginTransaction();
-        }
-        try {
-            $result = $operation($pdo);
+        $attempts = $owner ? 3 : 1;
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
             if ($owner) {
-                $pdo->commit();
+                $pdo->beginTransaction();
             }
-            return $result;
-        } catch (Throwable $error) {
-            if ($owner) {
-                try {
-                    $pdo->rollBack();
-                } catch (PDOException) {
+            try {
+                $result = $operation($pdo);
+                if ($owner) {
+                    $pdo->commit();
                 }
+                return $result;
+            } catch (Throwable $error) {
+                if ($owner) {
+                    try {
+                        $pdo->rollBack();
+                    } catch (PDOException) {
+                    }
+                }
+                if ($owner && $attempt < $attempts && $this->isDeadlock($error)) {
+                    continue;
+                }
+                throw $error;
             }
-            throw $error;
         }
+        throw new RuntimeException('Transacao nao concluida.');
+    }
+
+    private function isDeadlock(Throwable $error): bool
+    {
+        return $error instanceof PDOException
+            && ((string) $error->getCode() === '40001' || (($error->errorInfo[1] ?? null) === 1213));
     }
 }
