@@ -151,77 +151,6 @@
         document.querySelector('#nextSessions').disabled = page >= pages;
     };
 
-    const prepareCanvas = canvas => {
-        const ratio = window.devicePixelRatio || 1;
-        const width = Math.max(320, canvas.clientWidth || 700);
-        const height = 280;
-        canvas.width = width * ratio;
-        canvas.height = height * ratio;
-        const context = canvas.getContext('2d');
-        context.setTransform(ratio, 0, 0, ratio, 0, 0);
-        context.clearRect(0, 0, width, height);
-        return {context, width, height};
-    };
-
-    const noChartData = (context, width, height) => {
-        context.fillStyle = '#8fa4bd';
-        context.font = '14px system-ui';
-        context.textAlign = 'center';
-        context.fillText('Sem medições válidas', width / 2, height / 2);
-    };
-
-    const drawStagesChart = stages => {
-        const {context, width, height} = prepareCanvas(document.querySelector('#stagesChart'));
-        const stagesToPlot = [
-            {name: 'detection_ms', label: 'Detecção', shortLabel: 'Detecção'},
-            {name: 'extraction_ms', label: 'Extração', shortLabel: 'Extração'},
-            {name: 'mysql_query_ms', label: 'Consulta MySQL', shortLabel: 'Consulta'},
-            {name: 'candidate_read_ms', label: 'Leitura de candidatos', shortLabel: 'Leitura'},
-            {name: 'embedding_decrypt_ms', label: 'Descriptografia', shortLabel: 'Decifr.'},
-            {name: 'comparison_ms', label: 'Comparação', shortLabel: 'Comparar'},
-            {name: 'comparison_total_ms', label: 'Comparação total', shortLabel: 'Comp. total'},
-            {name: 'php_python_roundtrip_ms', label: 'PHP–Python', shortLabel: 'PHP–Py'},
-            {name: 'http_roundtrip_ms', label: 'HTTP individual', shortLabel: 'HTTP'},
-        ];
-        const values = stagesToPlot.flatMap(({name}) => ['A', 'B'].map(architecture => stages[architecture]?.[name]?.mean).filter(value => value !== undefined));
-        if (!values.length) { noChartData(context, width, height); return; }
-        const max = Math.max(...values) * 1.1 || 1;
-        const top = 25, left = 42;
-        const groupWidth = (width - left - 15) / stagesToPlot.length;
-        const useShortLabels = groupWidth < 82;
-        const rotateLabels = groupWidth < 55;
-        const bottom = rotateLabels ? 78 : 55;
-        const plotHeight = height - top - bottom;
-        stagesToPlot.forEach(({name, label, shortLabel}, index) => {
-            ['A', 'B'].forEach((architecture, position) => {
-                const value = stages[architecture]?.[name]?.mean;
-                if (value === undefined) return;
-                const barWidth = Math.min(28, groupWidth / 3);
-                const x = left + index * groupWidth + groupWidth / 2 + (position === 0 ? -barWidth : 2);
-                const barHeight = Number(value) / max * plotHeight;
-                context.fillStyle = architecture === 'A' ? '#4fa3ff' : '#5ee0a3';
-                context.fillRect(x, top + plotHeight - barHeight, barWidth - 2, barHeight);
-            });
-            context.fillStyle = '#8fa4bd';
-            context.font = '12px system-ui';
-            const x = left + index * groupWidth + groupWidth / 2;
-            const chartLabel = useShortLabels ? shortLabel : label;
-            if (rotateLabels) {
-                context.save();
-                context.translate(x, height - 10);
-                context.rotate(-Math.PI / 4);
-                context.textAlign = 'right';
-                context.fillText(chartLabel, 0, 0);
-                context.restore();
-            } else {
-                context.textAlign = 'center';
-                context.fillText(chartLabel, x, height - 28);
-            }
-        });
-        context.fillStyle = '#4fa3ff'; context.fillText('A', width - 48, 15);
-        context.fillStyle = '#5ee0a3'; context.fillText('B', width - 20, 15);
-    };
-
     const loadDashboard = async () => {
         dashboardStatus.textContent = 'Atualizando painel...';
         try {
@@ -233,7 +162,6 @@
             renderLifecycle(data.lifecycle);
             renderPrecision(data.precision);
             renderSessions(data);
-            drawStagesChart(data.stages);
             const reliability = ['A', 'B'].map(architecture => {
                 const item = data.session_statistics?.[architecture] || {};
                 return `${architecture}: falhas biométricas ${item.biometric_failures || 0}, internas ${item.internal_failures || 0}, HTTP do serviço ${item.service_http_failures || 0}, HTTP do navegador ${item.http_failures || 0} (${item.unresolved_http || 0} sem resultado no servidor)`;
