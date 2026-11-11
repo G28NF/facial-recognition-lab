@@ -72,9 +72,9 @@ final class MysqlIdentityRepository
     /** @param array<string,list<float>> $vectors
      *  @return array{identity_id:int,embedding_ids:array<string,int>,identity_created:bool}
      */
-    public function importPair(string $name, array $vectors): array
+    public function importPair(string $name, array $vectors, bool $reuseByName = true, bool $allowDuplicateName = false): array
     {
-        return $this->connection->transaction(function (PDO $pdo) use ($name, $vectors): array {
+        return $this->connection->transaction(function (PDO $pdo) use ($name, $vectors, $reuseByName, $allowDuplicateName): array {
             $lock = $pdo->prepare('SELECT GET_LOCK(:lock_name, 10)');
             $lock->execute(['lock_name' => 'rfv2.identity.register']);
             if ((int) $lock->fetchColumn() !== 1) {
@@ -85,10 +85,13 @@ final class MysqlIdentityRepository
                 $lookup->bindValue(':name_hash', $this->cipher->lookupHash($name), PDO::PARAM_LOB);
                 $lookup->execute();
                 $existing = $lookup->fetch();
-                $identityId = is_array($existing) ? (int) $existing['id'] : false;
+                $identityId = is_array($existing) && $reuseByName ? (int) $existing['id'] : false;
                 $created = false;
                 if (is_array($existing) && !(bool) $existing['active']) {
                     throw new DomainException('Este nome pertence a uma pessoa excluida.', 409);
+                }
+                if (is_array($existing) && !$reuseByName && !$allowDuplicateName) {
+                    throw new DomainException('O rotulo da fonte coincide com uma identidade existente sem identificador estavel.', 409);
                 }
                 if ($identityId === false) {
                     $encryptedName = $this->cipher->encrypt($name, 'identity:name');
@@ -116,6 +119,19 @@ final class MysqlIdentityRepository
                 } catch (Throwable) {
                 }
             }
+        });
+    }
+
+    /** @param array<string,list<float>> $vectors @return array<string,int> */
+    public function appendToIdentity(int $identityId, array $vectors): array
+    {
+        return $this->connection->transaction(function (PDO $pdo) use ($identityId, $vectors): array {
+            $identity = $pdo->prepare('SELECT id FROM identities WHERE id = :id AND active = 1 LIMIT 1 FOR UPDATE');
+            $identity->execute(['id' => $identityId]);
+            if ($identity->fetchColumn() === false) throw new DomainException('Identidade vinculada pela fonte nao esta disponivel.', 409);
+            $embeddingIds = [];
+            foreach ($vectors as $modelKey => $vector) $embeddingIds[$modelKey] = $this->insertEmbedding($pdo, $identityId, $modelKey, $vector);
+            return $embeddingIds;
         });
     }
 
