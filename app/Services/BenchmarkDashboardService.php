@@ -73,7 +73,7 @@ final class BenchmarkDashboardService
             'candidate_selection_ms', 'matched_name_query_ms', 'matched_name_decrypt_ms',
             'comparison_overhead_ms', 'comparison_total_ms',
             'facial_processing_ms', 'php_python_roundtrip_ms', 'php_python_overhead_ms',
-            'image_encode_ms', 'browser_upload_ms', 'end_to_end_ms', 'request_payload_bytes',
+            'image_encode_ms', 'browser_upload_ms', 'browser_download_ms', 'http_roundtrip_ms', 'end_to_end_ms', 'request_payload_bytes',
         ];
     }
 
