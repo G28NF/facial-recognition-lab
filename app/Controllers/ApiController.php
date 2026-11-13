@@ -68,7 +68,6 @@ final class ApiController
                 'session-end' => $this->sessionEnd(),
                 'session-presence' => $this->sessionPresence(),
                 'session-warmup' => $this->sessionWarmup(),
-                'session-frame' => $this->sessionFrame(),
                 'session-frame-a' => $this->sessionFrameA(),
                 'session-frame-b' => $this->sessionFrameB(),
                 'session-finalize' => $this->sessionFinalize(),
@@ -310,26 +309,6 @@ final class ApiController
                 ? $this->nonNegativeNumber($input['faceapi_first_inference_ms']) : null,
             $this->positiveInt($input['frame_sequence'] ?? null),
             $this->nonNegativeInt($input['missed_intervals'] ?? null),
-            is_array($input['monitoring_metrics'] ?? null) ? $input['monitoring_metrics'] : []
-        );
-    }
-
-    /** @return array<string,mixed> */
-    private function sessionFrame(): array
-    {
-        $input = $this->protectedInput(7_500_000);
-        $faceapiEmbedding = $input['faceapi_embedding'] ?? null;
-        if (!is_string($input['image'] ?? null) || ($faceapiEmbedding !== null && !is_array($faceapiEmbedding))) {
-            throw new InvalidArgumentException('Quadro comparativo invalido.');
-        }
-        return $this->continuous->processRound(
-            $this->token($input),
-            $this->positiveInt($input['frame_sequence'] ?? null),
-            $this->nonNegativeInt($input['missed_intervals'] ?? null),
-            $input['image'],
-            $faceapiEmbedding,
-            isset($input['faceapi_failure']) && is_string($input['faceapi_failure']) ? $input['faceapi_failure'] : null,
-            is_array($input['faceapi_metrics'] ?? null) ? $input['faceapi_metrics'] : [],
             is_array($input['monitoring_metrics'] ?? null) ? $input['monitoring_metrics'] : []
         );
     }
