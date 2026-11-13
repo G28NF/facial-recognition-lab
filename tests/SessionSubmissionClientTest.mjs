@@ -17,6 +17,8 @@ check(script.includes('image: encoded.image'), 'B nao envia a imagem para sua re
 check(script.includes('http_roundtrip_ms: performance.now() - communicationStarted'), 'Round-trip HTTP individual nao esta instrumentado.');
 check(script.includes('browser_upload_ms: submission.uploadMs'), 'Upload observado pelo navegador nao esta associado a cada arquitetura.');
 check(!script.includes('browser_upload_ms: submission.uploadMs ?? 0'), 'Ausencia de upload nao pode ser convertida em zero.');
+check(script.includes('browser_download_ms: submission.downloadMs'), 'Recebimento observado pelo navegador nao esta associado a cada arquitetura.');
+check(!script.includes('browser_download_ms: submission.downloadMs ?? 0'), 'Ausencia de download nao pode ser convertida em zero.');
 check(script.includes('end_to_end_ms: performance.now() - totalStarted'), 'Latencia ponta a ponta individual nao esta instrumentada.');
 check(script.includes('request_payload_bytes: payloadBytes(body)'), 'Bytes enviados nao sao registrados individualmente.');
 check(script.includes("faceApiFailure('no_face'"), 'Ausencia de rosto nao possui classificacao explicita.');
