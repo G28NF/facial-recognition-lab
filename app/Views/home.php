@@ -11,7 +11,7 @@ $ready = $infrastructure['database'] === 'disponivel';
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Reconhecimento Facial</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
-    <link rel="stylesheet" href="assets/css/app.css">
+    <link rel="stylesheet" href="assets/css/app.css?v=20261113">
 </head>
 <body data-authenticated="<?= $authenticated ? 'true' : 'false' ?>">
 <main class="container">
@@ -86,7 +86,7 @@ $ready = $infrastructure['database'] === 'disponivel';
                     <span>Último atraso <strong id="schedulerDelay">0.000 ms</strong></span>
                 </div>
                 <section class="results-evaluation" aria-labelledby="evaluation-heading">
-                    <div class="section-heading compact-heading"><div><p class="eyebrow">Processamento contínuo</p><h3 id="evaluation-heading">Resultados e avaliação</h3><p>Compare as arquiteturas A e B no mesmo quadro. A identidade real é opcional.</p></div></div>
+                    <div class="section-heading compact-heading"><div><p class="eyebrow">Processamento contínuo</p><h3 id="evaluation-heading">Resultados e avaliação</h3><p>Compare as arquiteturas A e B no mesmo quadro. A identidade real é opcional.</p></div><button id="customizeMetrics" type="button" class="secondary metric-customize-button" data-bs-toggle="modal" data-bs-target="#metricPreferencesModal">Personalizar métricas</button></div>
                     <div class="session-controls"><label for="evaluationIdentitySearch">Identidade real (ground truth)<input id="evaluationIdentitySearch" type="search" placeholder="Pesquisar identidade"></label><label for="evaluationIdentity">Selecionada<select id="evaluationIdentity"><option value="">Nenhuma — reconhecimento normal</option></select></label></div>
                     <section id="result" class="result-panel" hidden aria-live="polite"></section>
                     <div class="continuous-results">
@@ -214,6 +214,15 @@ $ready = $infrastructure['database'] === 'disponivel';
                 <div class="table-wrap"><table><thead><tr><th>Início</th><th>Estado</th><th>Arquiteturas</th><th>Intervalo</th><th>Quadros</th><th>Perdidos</th><th>Eventos</th><th>Falhas</th><th>Ações</th></tr></thead><tbody id="sessionsBody"></tbody></table></div>
             </section>
         </section>
+    </div>
+    <div class="modal fade metric-preferences-modal" id="metricPreferencesModal" tabindex="-1" aria-labelledby="metricPreferencesTitle" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-scrollable metric-preferences-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h2 class="modal-title fs-5" id="metricPreferencesTitle">Personalizar métricas</h2><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button></div>
+                <div class="modal-body"><p class="method-note">A seleção é aplicada aos resultados das arquiteturas A e B. Métricas sem valor não são exibidas.</p><div id="metricPreferencesList"></div></div>
+                <div class="modal-footer"><button id="resetMetricPreferences" type="button" class="secondary">Restaurar padrão</button><button type="button" data-bs-dismiss="modal">Concluir</button></div>
+            </div>
+        </div>
     </div>
     <?php endif; ?>
 
