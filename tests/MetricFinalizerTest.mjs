@@ -8,7 +8,7 @@ const payload = (architecture, frameSequence = 1) => ({
     session_token: '0123456789abcdef0123456789abcdef',
     frame_sequence: frameSequence,
     architecture,
-    metrics: {browser_upload_ms: architecture === 'A' ? 3 : 7, http_roundtrip_ms: 10, end_to_end_ms: 20, request_payload_bytes: architecture === 'A' ? 512 : 4096}
+    metrics: {browser_upload_ms: architecture === 'A' ? 3 : 7, browser_download_ms: architecture === 'A' ? 4 : 8, http_roundtrip_ms: 10, end_to_end_ms: 20, request_payload_bytes: architecture === 'A' ? 512 : 4096}
 });
 
 const normalCalls = [];
