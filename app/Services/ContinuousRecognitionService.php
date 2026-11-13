@@ -105,37 +105,6 @@ final class ContinuousRecognitionService
         return ['status' => 'warmed', 'warmup' => ['A' => $faceapiWarmupMs, 'B' => $pythonWarmupMs]];
     }
 
-    /** @param array<mixed>|null $faceapiEmbedding @param array<string,int|float> $faceapiMetrics @param array<string,int|float> $monitoringMetrics */
-    public function processRound(string $token, int $frameSequence, int $missedIntervals, string $image, ?array $faceapiEmbedding, ?string $faceapiFailure, array $faceapiMetrics, array $monitoringMetrics): array
-    {
-        $results = [];
-        $startedA = hrtime(true);
-        if ($faceapiEmbedding === null) {
-            $results['A'] = $this->frontendFaceApiFailure($faceapiFailure, $startedA, $faceapiMetrics);
-        } else {
-            try {
-                $results['A'] = $this->recognition->architectureA($faceapiEmbedding, $faceapiMetrics);
-                $results['A']['metrics']['pipeline_total_ms'] = round((hrtime(true) - $startedA) / 1_000_000 + (float) ($faceapiMetrics['detection_ms'] ?? 0) + (float) ($faceapiMetrics['extraction_ms'] ?? 0), 3);
-            } catch (Throwable $error) {
-                $results['A'] = $this->failure('A', $error, $startedA);
-            }
-        }
-
-        $startedB = hrtime(true);
-        try {
-            $results['B'] = $this->recognition->architectureB($image);
-            $results['B']['metrics']['pipeline_total_ms'] = round((hrtime(true) - $startedB) / 1_000_000, 3);
-        } catch (Throwable $error) {
-            $results['B'] = $this->failure('B', $error, $startedB);
-        }
-
-        $this->sessions->recordRound($token, $frameSequence, $missedIntervals, $results, $monitoringMetrics, [
-            'A' => $this->models['faceapi-recognition']['threshold_squared'],
-            'B' => $this->models['opencv-sface']['threshold_squared'],
-        ]);
-        return ['frame_sequence' => $frameSequence, 'results' => array_values($results)];
-    }
-
     /** @return array<string,mixed> */
     /** @param array<string,int|float> $frontendMetrics */
     private function frontendFaceApiFailure(?string $failure, int $started, array $frontendMetrics): array
