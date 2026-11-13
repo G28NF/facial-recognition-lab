@@ -81,9 +81,9 @@ try {
     $repository->recordArchitectureResult($individualToken, 'A', 1, 0, $individualA, ['capture_ms' => 2.0], ['A' => .36, 'B' => 1.3225]);
     usleep(20_000); // Atraso artificial posterior de B nao pode alterar as metricas ja gravadas de A.
     $repository->recordArchitectureResult($individualToken, 'B', 1, 0, $individualB, [], ['A' => .36, 'B' => 1.3225]);
-    $repository->finalizeRound($individualToken, 1, ['browser_upload_ms' => 3.0, 'http_roundtrip_ms' => 30.0, 'end_to_end_ms' => 40.0, 'request_payload_bytes' => 512.0], 'A');
-    $repository->finalizeRound($individualToken, 1, ['browser_upload_ms' => 12.0, 'http_roundtrip_ms' => 50.0, 'end_to_end_ms' => 60.0, 'request_payload_bytes' => 4096.0], 'B');
-    $repository->finalizeRound($individualToken, 1, ['browser_upload_ms' => 3.0, 'http_roundtrip_ms' => 30.0, 'end_to_end_ms' => 40.0, 'request_payload_bytes' => 512.0], 'A');
+    $repository->finalizeRound($individualToken, 1, ['browser_upload_ms' => 3.0, 'browser_download_ms' => 4.0, 'http_roundtrip_ms' => 30.0, 'end_to_end_ms' => 40.0, 'request_payload_bytes' => 512.0], 'A');
+    $repository->finalizeRound($individualToken, 1, ['browser_upload_ms' => 12.0, 'browser_download_ms' => 14.0, 'http_roundtrip_ms' => 50.0, 'end_to_end_ms' => 60.0, 'request_payload_bytes' => 4096.0], 'B');
+    $repository->finalizeRound($individualToken, 1, ['browser_upload_ms' => 3.0, 'browser_download_ms' => 4.0, 'http_roundtrip_ms' => 30.0, 'end_to_end_ms' => 40.0, 'request_payload_bytes' => 512.0], 'A');
     $pdo->exec("SET SESSION sql_mode = 'STRICT_ALL_TABLES'");
     try {
         $repository->finalizeRound($individualToken, 1, ['http_roundtrip_ms' => 999.0, 'end_to_end_ms' => PHP_FLOAT_MAX], 'B');
@@ -96,9 +96,9 @@ try {
     $individualEvents = $pdo->prepare('SELECT COUNT(*) FROM recognition_events re INNER JOIN video_sessions vs ON vs.id=re.video_session_id WHERE vs.session_group_id=:group');
     $individualEvents->bindValue(':group', $individualGroup, PDO::PARAM_LOB); $individualEvents->execute();
     if ((int) $individualEvents->fetchColumn() !== 2) throw new RuntimeException('Resultados independentes nao foram persistidos por arquitetura.');
-    $individualMetrics = $pdo->prepare('SELECT COUNT(*) FROM execution_metrics em INNER JOIN video_sessions vs ON vs.id=em.video_session_id WHERE vs.session_group_id=:group AND em.metric_name IN ("browser_upload_ms", "http_roundtrip_ms", "end_to_end_ms", "request_payload_bytes")');
+    $individualMetrics = $pdo->prepare('SELECT COUNT(*) FROM execution_metrics em INNER JOIN video_sessions vs ON vs.id=em.video_session_id WHERE vs.session_group_id=:group AND em.metric_name IN ("browser_upload_ms", "browser_download_ms", "http_roundtrip_ms", "end_to_end_ms", "request_payload_bytes")');
     $individualMetrics->bindValue(':group', $individualGroup, PDO::PARAM_LOB); $individualMetrics->execute();
-    if ((int) $individualMetrics->fetchColumn() !== 8) throw new RuntimeException('Metricas individuais A/B nao foram persistidas.');
+    if ((int) $individualMetrics->fetchColumn() !== 10) throw new RuntimeException('Metricas individuais A/B nao foram persistidas.');
     $payloadUnit = $pdo->prepare('SELECT em.metric_value, em.unit FROM execution_metrics em INNER JOIN video_sessions vs ON vs.id=em.video_session_id WHERE vs.session_group_id=:group AND vs.architecture_id="B" AND em.metric_name="request_payload_bytes"');
     $payloadUnit->bindValue(':group', $individualGroup, PDO::PARAM_LOB); $payloadUnit->execute(); $payload = $payloadUnit->fetch();
     if (!is_array($payload) || (float) $payload['metric_value'] !== 4096.0 || $payload['unit'] !== 'bytes') throw new RuntimeException('Bytes enviados nao preservaram valor ou unidade.');
@@ -106,6 +106,10 @@ try {
     $uploads->bindValue(':group', $individualGroup, PDO::PARAM_LOB); $uploads->execute(); $uploadByArchitecture = [];
     foreach ($uploads as $upload) $uploadByArchitecture[$upload['architecture_id']] = (float) $upload['metric_value'];
     if (($uploadByArchitecture['A'] ?? null) !== 3.0 || ($uploadByArchitecture['B'] ?? null) !== 12.0) throw new RuntimeException('Upload do navegador nao foi associado corretamente a arquitetura e ao quadro.');
+    $downloads = $pdo->prepare('SELECT vs.architecture_id, em.metric_value FROM execution_metrics em INNER JOIN video_sessions vs ON vs.id=em.video_session_id WHERE vs.session_group_id=:group AND em.recognition_event_id IS NOT NULL AND em.metric_name="browser_download_ms"');
+    $downloads->bindValue(':group', $individualGroup, PDO::PARAM_LOB); $downloads->execute(); $downloadByArchitecture = [];
+    foreach ($downloads as $download) $downloadByArchitecture[$download['architecture_id']] = (float) $download['metric_value'];
+    if (($downloadByArchitecture['A'] ?? null) !== 4.0 || ($downloadByArchitecture['B'] ?? null) !== 14.0) throw new RuntimeException('Download do navegador nao foi associado corretamente a arquitetura e ao quadro.');
     $latencies = $pdo->prepare('SELECT vs.architecture_id, em.metric_value FROM execution_metrics em INNER JOIN video_sessions vs ON vs.id=em.video_session_id WHERE vs.session_group_id=:group AND em.metric_name="end_to_end_ms"');
     $latencies->bindValue(':group', $individualGroup, PDO::PARAM_LOB); $latencies->execute(); $latencyByArchitecture = [];
     foreach ($latencies as $latency) $latencyByArchitecture[$latency['architecture_id']] = (float) $latency['metric_value'];
