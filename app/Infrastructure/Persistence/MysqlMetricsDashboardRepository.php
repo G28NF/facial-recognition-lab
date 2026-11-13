@@ -19,7 +19,7 @@ final class MysqlMetricsDashboardRepository
         'image_decode_ms', 'facial_processing_ms', 'php_python_roundtrip_ms',
         'php_python_overhead_ms', 'image_encode_ms', 'browser_upload_ms', 'end_to_end_ms',
     ];
-    private const EXPORT_METRICS = [...self::STAGE_METRICS, 'request_payload_bytes'];
+    private const EXPORT_METRICS = [...self::STAGE_METRICS, 'browser_download_ms', 'http_roundtrip_ms', 'request_payload_bytes'];
     private const LIFECYCLE_METRICS = ['initialization_ms', 'model_load_ms', 'runtime_ready_ms', 'first_inference_ms', 'warmup_ms'];
 
     public function __construct(private readonly PdoConnection $connection) {}
