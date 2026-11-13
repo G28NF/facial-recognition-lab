@@ -382,39 +382,90 @@
         : data.status === 'inconclusive' ? 'Resultado inconclusivo'
             : data.status === 'error' ? 'Falha no pipeline' : 'Pessoa desconhecida';
 
-    const metricRows = (data) => [
-        ['Distância quadrada', data.distance_squared],
-        ['Embeddings comparados', data.compared_embeddings, 'integer'],
-        ['Detecção', data.metrics?.detection_ms],
-        ['Extração', data.metrics?.extraction_ms],
-        ['Consulta MySQL', data.metrics?.mysql_query_ms],
-        ['Leitura dos candidatos', data.metrics?.candidate_read_ms],
-        ['Descriptografia', data.metrics?.embedding_decrypt_ms],
-        ['Preparação', data.metrics?.candidate_prepare_ms],
-        ['Comparação matemática', data.metrics?.comparison_ms],
-        ['Seleção por identidade', data.metrics?.candidate_selection_ms],
-        ['Consulta do nome', data.metrics?.matched_name_query_ms],
-        ['Descriptografia do nome', data.metrics?.matched_name_decrypt_ms],
-        ['Overhead da comparação', data.metrics?.comparison_overhead_ms],
-        ['Comparação total', data.metrics?.comparison_total_ms],
-        ['Pipeline total', data.metrics?.pipeline_total_ms],
-        ['Round-trip PHP–Python', data.metrics?.php_python_roundtrip_ms],
-        ['Overhead PHP–Python', data.metrics?.php_python_overhead_ms],
-        ['Codificação JPEG', data.metrics?.image_encode_ms],
-        ['Envio observado pelo navegador', data.metrics?.browser_upload_ms],
-        ['Bytes enviados', data.metrics?.request_payload_bytes, 'integer']
+    const metricPreferenceStorageKey = 'rfv2:visible-result-metrics';
+    const metricDefinitions = [
+        {key: 'distance_squared', category: 'Reconhecimento', label: 'Distância de semelhança', description: 'Indica quão próximo o rosto está do melhor cadastro. É um índice sem unidade; valores menores indicam maior semelhança.', format: 'score', value: data => data.distance_squared, defaultVisible: true},
+        {key: 'compared_embeddings', category: 'Reconhecimento', label: 'Comparações realizadas', description: 'Quantidade de vetores faciais comparados para chegar ao resultado.', format: 'count', value: data => data.compared_embeddings},
+        {key: 'detection_ms', category: 'Processamento', label: 'Detecção do rosto', description: 'Tempo para localizar o rosto no quadro, em milissegundos.', format: 'duration', value: data => data.metrics?.detection_ms},
+        {key: 'extraction_ms', category: 'Processamento', label: 'Extração de características', description: 'Tempo para gerar as características faciais usadas na comparação, em milissegundos.', format: 'duration', value: data => data.metrics?.extraction_ms},
+        {key: 'comparison_ms', category: 'Processamento', label: 'Comparação matemática', description: 'Tempo do cálculo de semelhança entre características faciais, em milissegundos.', format: 'duration', value: data => data.metrics?.comparison_ms},
+        {key: 'candidate_selection_ms', category: 'Processamento', label: 'Seleção de candidatos', description: 'Tempo para escolher os candidatos mais próximos, em milissegundos.', format: 'duration', value: data => data.metrics?.candidate_selection_ms},
+        {key: 'comparison_overhead_ms', category: 'Processamento', label: 'Preparação da comparação', description: 'Tempo adicional para preparar a comparação, em milissegundos.', format: 'duration', value: data => data.metrics?.comparison_overhead_ms},
+        {key: 'comparison_total_ms', category: 'Processamento', label: 'Comparação completa', description: 'Tempo total das etapas de comparação, em milissegundos.', format: 'duration', value: data => data.metrics?.comparison_total_ms},
+        {key: 'pipeline_total_ms', category: 'Processamento', label: 'Tempo total do pipeline', description: 'Tempo do processamento da arquitetura no servidor, em milissegundos.', format: 'duration', value: data => data.metrics?.pipeline_total_ms, defaultVisible: true},
+        {key: 'image_decode_ms', category: 'Processamento', label: 'Leitura da imagem', description: 'Tempo para abrir a imagem enviada à arquitetura, em milissegundos.', format: 'duration', value: data => data.metrics?.image_decode_ms},
+        {key: 'facial_processing_ms', category: 'Processamento', label: 'Processamento facial', description: 'Tempo do processamento facial do motor, em milissegundos.', format: 'duration', value: data => data.metrics?.facial_processing_ms},
+        {key: 'image_encode_ms', category: 'Processamento', label: 'Codificação JPEG', description: 'Tempo para codificar a imagem em JPEG antes do envio, em milissegundos.', format: 'duration', value: data => data.metrics?.image_encode_ms},
+        {key: 'mysql_query_ms', category: 'Banco de dados', label: 'Consulta ao banco', description: 'Tempo da consulta de dados no banco local, em milissegundos.', format: 'duration', value: data => data.metrics?.mysql_query_ms},
+        {key: 'candidate_read_ms', category: 'Banco de dados', label: 'Leitura de candidatos', description: 'Tempo para ler os candidatos do banco, em milissegundos.', format: 'duration', value: data => data.metrics?.candidate_read_ms},
+        {key: 'embedding_decrypt_ms', category: 'Banco de dados', label: 'Descriptografia facial', description: 'Tempo para descriptografar características faciais locais, em milissegundos.', format: 'duration', value: data => data.metrics?.embedding_decrypt_ms},
+        {key: 'candidate_prepare_ms', category: 'Banco de dados', label: 'Preparação de candidatos', description: 'Tempo para preparar os candidatos lidos do banco, em milissegundos.', format: 'duration', value: data => data.metrics?.candidate_prepare_ms},
+        {key: 'matched_name_query_ms', category: 'Banco de dados', label: 'Consulta do nome', description: 'Tempo para buscar o nome associado ao resultado, em milissegundos.', format: 'duration', value: data => data.metrics?.matched_name_query_ms},
+        {key: 'matched_name_decrypt_ms', category: 'Banco de dados', label: 'Descriptografia do nome', description: 'Tempo para descriptografar o nome associado ao resultado, em milissegundos.', format: 'duration', value: data => data.metrics?.matched_name_decrypt_ms},
+        {key: 'php_python_roundtrip_ms', category: 'Comunicação', label: 'Chamada PHP–Python', description: 'Tempo da chamada local entre PHP e o serviço Python, em milissegundos.', format: 'duration', value: data => data.metrics?.php_python_roundtrip_ms},
+        {key: 'php_python_overhead_ms', category: 'Comunicação', label: 'Overhead PHP–Python', description: 'Tempo adicional de comunicação entre PHP e Python, em milissegundos.', format: 'duration', value: data => data.metrics?.php_python_overhead_ms},
+        {key: 'browser_upload_ms', category: 'Comunicação', label: 'Envio HTTP', description: 'Tempo observado pelo navegador para enviar a requisição, em milissegundos.', format: 'duration', value: data => data.metrics?.browser_upload_ms, defaultVisible: true},
+        {key: 'browser_download_ms', category: 'Comunicação', label: 'Recebimento da resposta', description: 'Tempo observado pelo navegador entre o primeiro e o último byte da resposta, em milissegundos.', format: 'duration', value: data => data.metrics?.browser_download_ms, defaultVisible: true},
+        {key: 'http_roundtrip_ms', category: 'Comunicação', label: 'Ida e volta HTTP', description: 'Tempo completo da requisição HTTP, incluindo processamento no servidor, em milissegundos.', format: 'duration', value: data => data.metrics?.http_roundtrip_ms},
+        {key: 'end_to_end_ms', category: 'Comunicação', label: 'Tempo completo', description: 'Tempo da preparação até a resposta da arquitetura, em milissegundos.', format: 'duration', value: data => data.metrics?.end_to_end_ms},
+        {key: 'request_payload_bytes', category: 'Comunicação', label: 'Dados enviados', description: 'Tamanho do conteúdo JSON enviado na requisição, em bytes.', format: 'bytes', value: data => data.metrics?.request_payload_bytes}
     ];
+    const defaultVisibleMetricKeys = metricDefinitions.filter(metric => metric.defaultVisible).map(metric => metric.key);
+    const storedVisibleMetricKeys = (() => {
+        try {
+            const stored = JSON.parse(window.localStorage.getItem(metricPreferenceStorageKey) || 'null');
+            const known = new Set(metricDefinitions.map(metric => metric.key));
+            return Array.isArray(stored) ? stored.filter(key => known.has(key)) : defaultVisibleMetricKeys;
+        } catch (_) { return defaultVisibleMetricKeys; }
+    })();
+    const visibleMetricKeys = new Set(storedVisibleMetricKeys);
+    let latestResult = null;
+    let latestContinuousResults = [];
+    let latestContinuousSharedMetrics = {};
 
+    const persistMetricPreferences = () => {
+        try { window.localStorage.setItem(metricPreferenceStorageKey, JSON.stringify([...visibleMetricKeys])); } catch (_) {}
+    };
+    const metricRows = data => metricDefinitions
+        .filter(metric => visibleMetricKeys.has(metric.key))
+        .map(metric => ({...metric, value: metric.value(data)}))
+        .filter(metric => metric.value !== null && metric.value !== undefined);
+    const formatMetricValue = ({value, format}) => {
+        if (!Number.isFinite(Number(value))) return String(value);
+        const numeric = Number(value);
+        if (format === 'count') return `${Math.trunc(numeric)} comparações`;
+        if (format === 'bytes') return `${Math.trunc(numeric)} bytes`;
+        if (format === 'score') return numeric.toFixed(4);
+        return `${numeric.toFixed(3)} ms`;
+    };
+    const createMetricInfo = metric => {
+        const info = document.createElement('span');
+        info.className = 'metric-info';
+        info.textContent = 'ⓘ';
+        info.tabIndex = 0;
+        info.setAttribute('role', 'img');
+        info.setAttribute('aria-label', `Sobre ${metric.label}`);
+        info.setAttribute('data-bs-toggle', 'tooltip');
+        info.setAttribute('data-bs-title', metric.description);
+        return info;
+    };
+    const initializeMetricTooltips = container => {
+        if (!globalThis.bootstrap?.Tooltip) return;
+        container.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(element => globalThis.bootstrap.Tooltip.getOrCreateInstance(element));
+    };
     const appendMetrics = (container, rows) => {
         container.replaceChildren();
-        for (const [label, value, format] of rows) {
-            if (value === null || value === undefined) continue;
+        for (const metric of rows) {
             const dt = document.createElement('dt');
+            const label = document.createElement('span');
+            label.className = 'metric-label';
+            label.append(document.createTextNode(metric.label), createMetricInfo(metric));
             const dd = document.createElement('dd');
-            dt.textContent = label;
-            dd.textContent = typeof value === 'number' ? (format === 'integer' ? String(Math.trunc(value)) : Number(value).toFixed(3)) : value;
+            dt.append(label);
+            dd.textContent = formatMetricValue(metric);
             container.append(dt, dd);
         }
+        initializeMetricTooltips(container);
     };
 
     const currentSessionHistory = [];
@@ -461,6 +512,7 @@
     };
 
     const renderResult = (data) => {
+        latestResult = data;
         result.hidden = false;
         result.replaceChildren();
         const title = document.createElement('h2');
@@ -474,6 +526,8 @@
     };
 
     const renderContinuous = (results, sharedMetrics) => {
+        latestContinuousResults = results;
+        latestContinuousSharedMetrics = sharedMetrics;
         for (const item of results) {
             const outcome = document.querySelector(`#continuousResult${item.architecture}`);
             outcome.className = `outcome ${item.status}`;
@@ -481,6 +535,55 @@
             appendMetrics(document.querySelector(`#continuousMetrics${item.architecture}`), metricRows({...item, metrics: {...item.metrics, ...sharedMetrics}}));
         }
     };
+
+    const refreshMetricDisplays = () => {
+        if (latestResult) renderResult(latestResult);
+        if (latestContinuousResults.length) renderContinuous(latestContinuousResults, latestContinuousSharedMetrics);
+    };
+    const renderMetricPreferences = () => {
+        const container = document.querySelector('#metricPreferencesList');
+        container.replaceChildren();
+        for (const category of [...new Set(metricDefinitions.map(metric => metric.category))]) {
+            const group = document.createElement('fieldset');
+            group.className = 'metric-option-group';
+            const title = document.createElement('legend');
+            title.textContent = category;
+            const grid = document.createElement('div');
+            grid.className = 'metric-option-grid';
+            for (const metric of metricDefinitions.filter(item => item.category === category)) {
+                const option = document.createElement('div');
+                option.className = 'metric-option';
+                const input = document.createElement('input');
+                input.className = 'form-check-input';
+                input.type = 'checkbox';
+                input.id = `metricPreference-${metric.key}`;
+                input.checked = visibleMetricKeys.has(metric.key);
+                input.addEventListener('change', () => {
+                    if (input.checked) visibleMetricKeys.add(metric.key);
+                    else visibleMetricKeys.delete(metric.key);
+                    persistMetricPreferences();
+                    refreshMetricDisplays();
+                });
+                const label = document.createElement('label');
+                label.className = 'form-check-label';
+                label.htmlFor = input.id;
+                label.textContent = metric.label;
+                option.append(input, label, createMetricInfo(metric));
+                grid.append(option);
+            }
+            group.append(title, grid);
+            container.append(group);
+        }
+        initializeMetricTooltips(container);
+    };
+    document.querySelector('#resetMetricPreferences').addEventListener('click', () => {
+        visibleMetricKeys.clear();
+        defaultVisibleMetricKeys.forEach(key => visibleMetricKeys.add(key));
+        persistMetricPreferences();
+        renderMetricPreferences();
+        refreshMetricDisplays();
+    });
+    renderMetricPreferences();
 
     document.querySelector('#recognizeA').addEventListener('click', async () => {
         updateControls();
@@ -599,7 +702,7 @@
                 sequenceSubmissionStarted = true;
                 const submission = await submitArchitecture('A', body);
                 const data = submission.data;
-                const clientMetrics = {browser_upload_ms: submission.uploadMs, http_roundtrip_ms: performance.now() - communicationStarted, end_to_end_ms: performance.now() - totalStarted, request_payload_bytes: payloadBytes(body)};
+                const clientMetrics = {browser_upload_ms: submission.uploadMs, browser_download_ms: submission.downloadMs, http_roundtrip_ms: performance.now() - communicationStarted, end_to_end_ms: performance.now() - totalStarted, request_payload_bytes: payloadBytes(body)};
                 Object.assign(data.metrics, clientMetrics);
                 await metricFinalizer.submit({session_token: session.token, frame_sequence: sequence, architecture: 'A', metrics: clientMetrics});
                 return data;
@@ -612,7 +715,7 @@
                 sequenceSubmissionStarted = true;
                 const submission = await submitArchitecture('B', body);
                 const data = submission.data;
-                const clientMetrics = {image_encode_ms: encoded.imageEncodeMs, browser_upload_ms: submission.uploadMs, http_roundtrip_ms: performance.now() - communicationStarted, end_to_end_ms: performance.now() - totalStarted, request_payload_bytes: payloadBytes(body)};
+                const clientMetrics = {image_encode_ms: encoded.imageEncodeMs, browser_upload_ms: submission.uploadMs, browser_download_ms: submission.downloadMs, http_roundtrip_ms: performance.now() - communicationStarted, end_to_end_ms: performance.now() - totalStarted, request_payload_bytes: payloadBytes(body)};
                 Object.assign(data.metrics, clientMetrics);
                 await metricFinalizer.submit({session_token: session.token, frame_sequence: sequence, architecture: 'B', metrics: clientMetrics});
                 return data;
