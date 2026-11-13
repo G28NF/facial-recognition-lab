@@ -52,7 +52,8 @@ try {
     }
     $sessions->recordWarmup($token, 1, 0, ['A' => 8.0, 'B' => 9.0], ['presence_detection_ms' => 2.0], 8.0);
     $sessions->recordRound($token, 2, 0, ['A' => $result('recognized', 10), 'B' => $result('recognized', 20)], [], ['A' => .36, 'B' => 1.3225]);
-    $sessions->finalizeRound($token, 2, ['browser_upload_ms' => 3.5, 'http_roundtrip_ms' => 42.0, 'request_payload_bytes' => 512.0], 'A');
+    $sessions->finalizeRound($token, 2, ['browser_upload_ms' => 3.5, 'browser_download_ms' => 5.5, 'http_roundtrip_ms' => 42.0, 'request_payload_bytes' => 512.0], 'A');
+    $sessions->finalizeRound($token, 2, ['browser_upload_ms' => 7.5, 'browser_download_ms' => 9.5, 'http_roundtrip_ms' => 84.0, 'request_payload_bytes' => 4096.0], 'B');
     $sessions->recordRound($token, 3, 0, ['A' => $result('unknown', 20), 'B' => $result('error', 30, 'service_failure')], [], ['A' => .36, 'B' => 1.3225]);
     $sessions->recordRound($token, 4, 1, ['A' => $result('inconclusive', 100), 'B' => $result('unknown', 40)], [], ['A' => .36, 'B' => 1.3225]);
     $sessions->end($token);
@@ -113,14 +114,23 @@ try {
     $types = array_unique(array_column($rows, 'record_type'));
     $serializedRows = json_encode($rows, JSON_THROW_ON_ERROR);
     $headers = $dashboard->csvHeaders();
-    if (!in_array('recognition', $types, true) || !in_array('session_metric', $types, true) || !in_array('browser_upload_ms', $headers, true) || in_array('http_roundtrip_ms', $headers, true) || !in_array('end_to_end_ms', $headers, true) || !in_array('request_payload_bytes', $headers, true) || str_contains($serializedRows, '"http_roundtrip_ms":') || str_contains($serializedRows, '"embedding":') || str_contains($serializedRows, '"image":') || str_contains($serializedRows, 'data:image')) {
+    if (!in_array('recognition', $types, true) || !in_array('session_metric', $types, true) || !in_array('browser_upload_ms', $headers, true) || !in_array('browser_download_ms', $headers, true) || !in_array('http_roundtrip_ms', $headers, true) || !in_array('end_to_end_ms', $headers, true) || !in_array('request_payload_bytes', $headers, true) || !str_contains($serializedRows, '"browser_download_ms":') || !str_contains($serializedRows, '"http_roundtrip_ms":') || str_contains($serializedRows, '"embedding":') || str_contains($serializedRows, '"image":') || str_contains($serializedRows, 'data:image')) {
         throw new RuntimeException('Exportacao nao separou registros ou incluiu dado biometrico.');
     }
     if (isset($data['stages']['A']['request_payload_bytes']) || isset($data['stages']['B']['request_payload_bytes'])) {
         throw new RuntimeException('Bytes enviados foram incluidos como etapa temporal.');
     }
-    if (($data['stages']['A']['browser_upload_ms']['mean'] ?? null) !== 3.5 || isset($data['stages']['B']['browser_upload_ms']) || isset($data['stages']['A']['http_roundtrip_ms']) || isset($data['stages']['B']['http_roundtrip_ms'])) {
-        throw new RuntimeException('Painel nao distinguiu upload observado de medicao ausente.');
+    if (($data['stages']['A']['browser_upload_ms']['mean'] ?? null) !== 3.5 || ($data['stages']['B']['browser_upload_ms']['mean'] ?? null) !== 7.5 || isset($data['stages']['A']['browser_download_ms']) || isset($data['stages']['B']['browser_download_ms']) || isset($data['stages']['A']['http_roundtrip_ms']) || isset($data['stages']['B']['http_roundtrip_ms'])) {
+        throw new RuntimeException('Painel nao distinguiu upload observado da medicao HTTP exportada.');
+    }
+    $exportedRound = [];
+    foreach ($rows as $row) {
+        if ($row['record_type'] === 'recognition' && (int) $row['frame_sequence'] === 2) $exportedRound[$row['architecture']] = $row;
+    }
+    if (count($exportedRound) !== 2
+        || (float) $exportedRound['A']['browser_upload_ms'] !== 3.5 || (float) $exportedRound['A']['browser_download_ms'] !== 5.5 || (float) $exportedRound['A']['http_roundtrip_ms'] !== 42.0 || (float) $exportedRound['A']['end_to_end_ms'] !== 10.0
+        || (float) $exportedRound['B']['browser_upload_ms'] !== 7.5 || (float) $exportedRound['B']['browser_download_ms'] !== 9.5 || (float) $exportedRound['B']['http_roundtrip_ms'] !== 84.0 || (float) $exportedRound['B']['end_to_end_ms'] !== 20.0) {
+        throw new RuntimeException('Exportacao nao preservou as metricas individuais por arquitetura.');
     }
     $payloadExported = array_values(array_filter($rows, static fn(array $row): bool => $row['record_type'] === 'recognition' && (float) ($row['request_payload_bytes'] ?? 0) === 512.0));
     if (count($payloadExported) !== 1) {
